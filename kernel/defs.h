@@ -9,6 +9,13 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+enum log_level {
+	LOG_INFO = 0,
+	LOG_WARN = 1,
+	LOG_ERR  = 2,
+	LOG_DEBUG = 3,
+};
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -74,6 +81,7 @@ int             pipewrite(struct pipe*, uint64, int);
 
 // printf.c
 int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
+int             klog(enum log_level, char*, ...) __attribute__ ((format (printf, 2, 3)));
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 
@@ -101,6 +109,7 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+void            proc_tick(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

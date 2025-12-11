@@ -13,3 +13,9 @@
 #define MAXPATH      128   // maximum file path name
 #define USERSTACK    1     // user stack pages
 
+// Scheduling
+#define TIME_SLICE_TICKS 5   // time slice per RUNNING process, in timer ticks
+#define PRI_MIN        0
+#define PRI_DEFAULT    1
+#define PRI_MAX        3
+

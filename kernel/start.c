@@ -10,10 +10,23 @@ void timerinit();
 // entry.S needs one stack per CPU.
 __attribute__ ((aligned (16))) char stack0[4096 * NCPU];
 
+extern char __bss_start[];
+extern char __bss_end[];
+
+static void
+clear_bss(void)
+{
+  // 早期手动清零 BSS，确保全局/静态未初始化数据为 0。
+  for(char *p = __bss_start; p < __bss_end; p++)
+    *p = 0;
+}
+
 // entry.S jumps here in machine mode on stack0.
 void
 start()
 {
+  clear_bss();
+
   // set M Previous Privilege mode to Supervisor, for mret.
   unsigned long x = r_mstatus();
   x &= ~MSTATUS_MPP_MASK;

@@ -2,21 +2,10 @@ Hai-OS
 
 **阶段 1 — 启动（Boot & Early init）**
 
-- 目标：理解并替换启动流程，以便在后面可以修改内核入口、链接脚本和低级初始化。
-- 要改的文件：
-  - `kernel/entry.S`：ELF 入口代码；修改初始化栈、早期寄存器设置。
-  - `kernel/trampoline.S`：从内核态切换至用户态或异常/中断 trampoline。
-  - `kernel/kernelvec.S`：异常向量表实现。
-  - `kernel/start.c`：早期 C 语言初始化（设置 BSS、调用 main 等）。
-  - `kernel/kernel.ld` 或 `kernel/kernel.asm`：链接脚本，定义内核地址空间布局。
-  - `Makefile`：保证新的汇编/链接规则被包含。
-
-实现要点：
-- 确定内核加载地址与内核虚拟地址映射规则（修改 `kernel.ld` 和 `memlayout.h`）。
-- 如果希望更换引导器（例如从 GRUB 改为自定义 bootloader 或 multiboot），修改相应入口并确保镜像格式一致。
-- 保持早期输出（UART/console）可用，便于调试 early boot。
-
-检查点：修改后仍然能到达 `main` 并输出早期日志（`printf`/console）。
+- `kernel/entry.S` 使用 `riscv.h` 的 `PGSIZE` 计算每 hart 启动栈，去掉硬编码 4KB。
+- `kernel/kernel.ld` 导出 `__bss_start`/`__bss_end`，便于早期清零和调试。
+- `kernel/start.c` 在进入主逻辑前显式清零 BSS，确保初始内存一致。
+- `kernel/main.c` 在各 hart 启动提示后追加 “Hai-OS successfully booted.”，便于确认多核已拉起。
 
 **阶段 2 — 内核基础设施与启动序列（Kernel Core）**
 
@@ -28,11 +17,9 @@ Hai-OS
   - `kernel/uart.c`：串口驱动，启动期打印依赖它。
   - `kernel/log.c`：日志子系统（如果存在），否则新增。
 
-实现要点：
-- 将初始化拆分为模块化函数（例如 `init_trap()`, `init_memory()`, `init_process()`, `init_fs()`），便于后续替换。
-- 增加崩溃处理（panic）钩子，记录堆栈信息并安全停止或重启。
-
-检查点：模块化后的 init 顺序正确，日志能区分模块、级别。
+已完成改动（阶段 2）：
+- `kernel/main.c` 将启动流程拆分为可读的阶段函数，并在各子系统初始化时输出 Hai-OS 风格日志，便于核对顺序和多核启动状态。
+- `kernel/printf.c` / `kernel/defs.h` 增加 `klog()` 与日志级别枚举，输出带 `[Hai-OS LEVEL]` 。
 
 **阶段 3 — 进程与调度（Processes & Scheduler）**
 
@@ -51,6 +38,12 @@ Hai-OS
 - 在 `swtch.S` 与 `trap.c` 中实现正确的中断可重入与原子性。
 
 检查点：能够运行 `init` 进程，能 spawn 子进程并进行上下文切换；运行用户 `init` 脚本或 `sh`。
+
+已完成改动（阶段 3）：
+- 在 `param.h` 定义时间片/优先级常量，调度策略可配置。
+- 在 `proc.h` 为进程新增动态优先级、时间片预算、运行时间和调度次数统计。
+- `proc.c` 增加 `proc_tick()` 计时与简单优先级老化，调度器改为“高优先级优先，若同级则运行时间短者优先”，并在每次调度重置时间片、计数调度次数。
+- `trap.c` 的定时中断调用 `proc_tick()` 记账后再 `yield()`，保障时间片轮转受控。
 
 **阶段 4 — 虚拟内存与物理内存管理（VM & PM）**
 

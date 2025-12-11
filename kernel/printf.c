@@ -25,6 +25,9 @@ static struct {
 
 static char digits[] = "0123456789abcdef";
 
+static void vprintfmt(char *fmt, va_list ap);
+static void print_level_prefix(enum log_level level);
+
 static void
 printint(long long xx, int base, int sign)
 {
@@ -64,13 +67,66 @@ int
 printf(char *fmt, ...)
 {
   va_list ap;
-  int i, cx, c0, c1, c2;
-  char *s;
 
   if(panicking == 0)
     acquire(&pr.lock);
 
   va_start(ap, fmt);
+  vprintfmt(fmt, ap);
+  va_end(ap);
+
+  if(panicking == 0)
+    release(&pr.lock);
+
+  return 0;
+}
+
+int
+klog(enum log_level level, char *fmt, ...)
+{
+  va_list ap;
+
+  if(panicking == 0)
+    acquire(&pr.lock);
+
+  // 输出 Hai-OS 品牌化日志前缀，再复用 printf 的格式化逻辑。
+  print_level_prefix(level);
+
+  va_start(ap, fmt);
+  vprintfmt(fmt, ap);
+  va_end(ap);
+
+  consputc('\n');
+
+  if(panicking == 0)
+    release(&pr.lock);
+
+  return 0;
+}
+
+void
+panic(char *s)
+{
+  panicking = 1;
+  printf("panic: ");
+  printf("%s\n", s);
+  panicked = 1; // freeze uart output from other CPUs
+  for(;;)
+    ;
+}
+
+void
+printfinit(void)
+{
+  initlock(&pr.lock, "pr");
+}
+
+static void
+vprintfmt(char *fmt, va_list ap)
+{
+  int i, cx, c0, c1, c2;
+  char *s;
+
   for(i = 0; (cx = fmt[i] & 0xff) != 0; i++){
     if(cx != '%'){
       consputc(cx);
@@ -125,27 +181,23 @@ printf(char *fmt, ...)
     }
 
   }
-  va_end(ap);
-
-  if(panicking == 0)
-    release(&pr.lock);
-
-  return 0;
 }
 
-void
-panic(char *s)
+static void
+print_level_prefix(enum log_level level)
 {
-  panicking = 1;
-  printf("panic: ");
-  printf("%s\n", s);
-  panicked = 1; // freeze uart output from other CPUs
-  for(;;)
-    ;
-}
+  static const char *levels[] = {"INFO", "WARN", "ERROR", "DEBUG"};
+  const char *tag = "INFO";
+  if(level >= 0 && level < (int)(sizeof(levels)/sizeof(levels[0])))
+    tag = levels[level];
 
-void
-printfinit(void)
-{
-  initlock(&pr.lock, "pr");
+  // 统一日志前缀格式：[Hai-OS LEVEL]
+  consputc('[');
+  const char *brand = "Hai-OS";
+  while(*brand) consputc(*brand++);
+  consputc(' ');
+  for(const char *p = tag; *p; p++)
+    consputc(*p);
+  consputc(']');
+  consputc(' ');
 }

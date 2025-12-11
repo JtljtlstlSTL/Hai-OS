@@ -36,9 +36,11 @@ SECTIONS
 
   .bss : {
     . = ALIGN(16);
+    PROVIDE(__bss_start = .);
     *(.sbss .sbss.*) /* do not need to distinguish this from .bss */
     . = ALIGN(16);
     *(.bss .bss.*)
+    PROVIDE(__bss_end = .);
   }
 
   PROVIDE(end = .);

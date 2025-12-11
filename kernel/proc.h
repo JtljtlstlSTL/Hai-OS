@@ -92,6 +92,12 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  // scheduling
+  int priority;               // dynamic priority 动态优先级，数值越大越优先
+  int budget;                 // remaining ticks in current slice 剩余时间片
+  uint64 rtime;               // total runtime ticks 已运行的 tick 数
+  uint64 sched_cnt;           // how many times scheduled 被调度次数
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 

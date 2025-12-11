@@ -124,6 +124,10 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority = PRI_DEFAULT;
+  p->budget = TIME_SLICE_TICKS;
+  p->rtime = 0;
+  p->sched_cnt = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -168,6 +172,10 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->priority = PRI_DEFAULT;
+  p->budget = TIME_SLICE_TICKS;
+  p->rtime = 0;
+  p->sched_cnt = 0;
   p->state = UNUSED;
 }
 
@@ -228,6 +236,29 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  release(&p->lock);
+}
+
+// Account a timer tick to the current RUNNING process and apply simple aging.
+// Called from timer interrupt context.
+void
+proc_tick(void)
+{
+  struct proc *p = myproc();
+  if(p == 0)
+    return;
+
+  acquire(&p->lock);
+  if(p->state == RUNNING){
+    // 按 tick 计费并做简单老化：时间片耗尽则降低优先级。
+    p->rtime++;
+    p->budget--;
+    if(p->budget <= 0){
+      if(p->priority > PRI_MIN)
+        p->priority -= 1; // age: long runners slowly drop priority
+      p->budget = TIME_SLICE_TICKS;
+    }
+  }
   release(&p->lock);
 }
 
@@ -437,26 +468,40 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
+    struct proc *best = 0;
+    int best_prio = -1;
+    uint64 best_rtime = 0;
+
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+        int pr = p->priority;
+        uint64 rt = p->rtime;
+        // 先比优先级，高者先；同级则运行时间短者先（近似短作业优先）。
+        if(pr > best_prio || (pr == best_prio && (best == 0 || rt < best_rtime))){
+          if(best)
+            release(&best->lock);
+          best = p;
+          best_prio = pr;
+          best_rtime = rt;
+          continue;
+        }
       }
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+
+    if(best){
+      // switch to chosen process
+      best->state = RUNNING;
+      best->budget = TIME_SLICE_TICKS;
+      best->sched_cnt++;
+      c->proc = best;
+      swtch(&c->context, &best->context);
+      // process will return here when it yields/sleeps/exits
+      c->proc = 0;
+      release(&best->lock);
+    } else {
+      // nothing to run; stop until an interrupt
       asm volatile("wfi");
     }
   }

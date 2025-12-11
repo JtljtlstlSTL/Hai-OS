@@ -80,9 +80,11 @@ usertrap(void)
   if(killed(p))
     kexit(-1);
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  // 时钟中断：先记账，再让出 CPU 触发调度。
+  if(which_dev == 2){
+    proc_tick();
     yield();
+  }
 
   prepare_return();
 
