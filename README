@@ -1,48 +1,130 @@
-xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
-Version 6 (v6).  xv6 loosely follows the structure and style of v6,
-but is implemented for a modern RISC-V multiprocessor using ANSI C.
+Hai-OS
 
-ACKNOWLEDGMENTS
+**阶段 1 — 启动（Boot & Early init）**
 
-xv6 is inspired by John Lions's Commentary on UNIX 6th Edition (Peer
-to Peer Communications; ISBN: 1-57398-013-7; 1st edition (June 14,
-2000)).  See also https://pdos.csail.mit.edu/6.1810/, which provides
-pointers to on-line resources for v6.
+- 目标：理解并替换启动流程，以便在后面可以修改内核入口、链接脚本和低级初始化。
+- 要改的文件：
+  - `kernel/entry.S`：ELF 入口代码；修改初始化栈、早期寄存器设置。
+  - `kernel/trampoline.S`：从内核态切换至用户态或异常/中断 trampoline。
+  - `kernel/kernelvec.S`：异常向量表实现。
+  - `kernel/start.c`：早期 C 语言初始化（设置 BSS、调用 main 等）。
+  - `kernel/kernel.ld` 或 `kernel/kernel.asm`：链接脚本，定义内核地址空间布局。
+  - `Makefile`：保证新的汇编/链接规则被包含。
 
-The following people have made contributions: Russ Cox (context switching,
-locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, and Austin
-Clements.
+实现要点：
+- 确定内核加载地址与内核虚拟地址映射规则（修改 `kernel.ld` 和 `memlayout.h`）。
+- 如果希望更换引导器（例如从 GRUB 改为自定义 bootloader 或 multiboot），修改相应入口并确保镜像格式一致。
+- 保持早期输出（UART/console）可用，便于调试 early boot。
 
-We are also grateful for the bug reports and patches contributed by
-Abhinavpatel00, Takahiro Aoyagi, Marcelo Arroyo, Hirbod Behnam, Silas
-Boyd-Wickizer, Anton Burtsev, carlclone, Ian Chen, clivezeng, Dan
-Cross, Cody Cutler, Mike CAT, Tej Chajed, Asami Doi,Wenyang Duan,
-echtwerner, eyalz800, Nelson Elhage, Saar Ettinger, Alice Ferrazzi,
-Nathaniel Filardo, flespark, Peter Froehlich, Yakir Goaron, Shivam
-Handa, Matt Harvey, Bryan Henry, jaichenhengjie, Jim Huang, Matúš
-Jókay, John Jolly, Alexander Kapshuk, Anders Kaseorg, kehao95,
-Wolfgang Keller, Jungwoo Kim, Jonathan Kimmitt, Eddie Kohler, Vadim
-Kolontsov, Austin Liew, l0stman, Pavan Maddamsetti, Imbar Marinescu,
-Yandong Mao, Matan Shabtay, Hitoshi Mitake, Carmi Merimovich,
-mes900903, Mark Morrissey, mtasm, Joel Nider, Hayato Ohhashi,
-OptimisticSide, papparapa, phosphagos, Harry Porter, Greg Price, Zheng
-qhuo, Quancheng, RayAndrew, Jude Rich, segfault, Ayan Shafqat, Eldar
-Sehayek, Yongming Shen, Fumiya Shigemitsu, snoire, Taojie, Cam Tenny,
-tyfkda, Warren Toomey, Stephen Tu, Alissa Tung, Rafael Ubal, unicornx,
-Amane Uehara, Pablo Ventura, Luc Videau, Xi Wang, WaheedHafez, Keiichi
-Watanabe, Lucas Wolf, Nicolas Wolovick, wxdao, Grant Wu, x653, Andy
-Zhang, Jindong Zhang, Icenowy Zheng, ZhUyU1997, and Zou Chang Wei.
+检查点：修改后仍然能到达 `main` 并输出早期日志（`printf`/console）。
 
-ERROR REPORTS
+**阶段 2 — 内核基础设施与启动序列（Kernel Core）**
 
-Please send errors and suggestions to Frans Kaashoek and Robert Morris
-(kaashoek,rtm@mit.edu).  The main purpose of xv6 is as a teaching
-operating system for MIT's 6.1810, so we are more interested in
-simplifications and clarifications than new features.
+- 目标：替换或扩展内核的初始化流程、内核符号、打印、日志、panic 机制。
+- 要改的文件：
+  - `kernel/main.c`：内核入口 main，初始化子系统调用顺序。
+  - `kernel/printf.c`：内核打印实现，可能替换为更安全或更完整的实现（格式化、日志级别）。
+  - `kernel/console.c`：控制台/终端抽象。
+  - `kernel/uart.c`：串口驱动，启动期打印依赖它。
+  - `kernel/log.c`：日志子系统（如果存在），否则新增。
 
-BUILDING AND RUNNING XV6
+实现要点：
+- 将初始化拆分为模块化函数（例如 `init_trap()`, `init_memory()`, `init_process()`, `init_fs()`），便于后续替换。
+- 增加崩溃处理（panic）钩子，记录堆栈信息并安全停止或重启。
 
-You will need a RISC-V "newlib" tool chain from
-https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
-riscv64-softmmu.  Once they are installed, and in your shell
-search path, you can run "make qemu".
+检查点：模块化后的 init 顺序正确，日志能区分模块、级别。
+
+**阶段 3 — 进程与调度（Processes & Scheduler）**
+
+- 目标：实现或替换进程结构、调度算法和上下文切换逻辑。
+- 要改的文件：
+  - `kernel/proc.c`：进程结构 `proc`、调度器实现、fork/exit/wait 等。
+  - `kernel/proc.h`（若存在）或 `kernel/defs.h`：进程数据结构声明。
+  - `kernel/swtch.S`：上下文切换汇编实现。
+  - `kernel/trap.c`：中断与陷阱处理，和调度器交互（时钟中断驱动调度）。
+  - `kernel/param.h`：进程数上限、时间片等参数。
+  - `kernel/sysproc.c`、`kernel/syscall.c`、`kernel/syscall.h`：进程相关系统调用接口。
+
+实现要点：
+- 决定调度策略（简单的 round-robin、优先级、CFS 风格等），从最简单实现开始。
+- 保持 `fork`/`exec`/`wait` 的用户态接口兼容（除非决定破坏兼容），这样现有的 `user/` 程序可以运行。
+- 在 `swtch.S` 与 `trap.c` 中实现正确的中断可重入与原子性。
+
+检查点：能够运行 `init` 进程，能 spawn 子进程并进行上下文切换；运行用户 `init` 脚本或 `sh`。
+
+**阶段 4 — 虚拟内存与物理内存管理（VM & PM）**
+
+- 目标：实现更稳定或更现代的内存管理（内核分页、物理页分配、内核/用户分离、内存保护）。
+- 要改的文件：
+  - `kernel/vm.c`：页面表管理（映射/解除映射、页表层次结构）。
+  - `kernel/kalloc.c`：物理页分配器（内核页框分配器）。
+  - `kernel/memlayout.h`：内存布局常量（内核虚拟基址、设备地址等）。
+  - `kernel/vm.h`：内存管理公共接口（若存在）。
+  - `kernel/proc.c`：与进程地址空间相关的部分（内存分配、拷贝、释放）。
+
+实现要点：
+- 保持用户态内存隔离，正确实现 copy-on-write（如需）或按需分页。
+- 如果要支持内核动态内存分配（类似 kmalloc），设计或引入小型分配器。
+
+检查点：用户进程地址空间独立，非法访问产生页面异常并被正确处理；运行内存压力测试（`_stressfs`, `_grind` 等）。
+
+**阶段 5 — 系统调用与用户态 ABI（Syscalls & ABI）**
+
+- 目标：设计你的系统调用集合和调用约定，决定是否兼容 xv6 的 syscall 列表。
+- 要改的文件：
+  - `kernel/syscall.c`：系统调用分发与处理。
+  - `kernel/syscall.h`：系统调用号定义。
+  - `user/usys.S`、`user/usys.pl`：用户态系统调用封装。
+  - `user/ulib.c`：用户级库函数（例如 `printf`、`open` 等）实现。
+  - `kernel/sysproc.c`、`kernel/sysfile.c`：具体 syscall 的内核实现。
+
+实现要点：
+- 若改变 ABI，需同时更新 `user/` 下所有依赖的程序或提供兼容层。
+- 增加权限检查、参数验证以提升安全性。
+
+检查点：能成功执行常用系统调用：`open/read/write/fork/exec/exit/kill/wait`。
+
+**阶段 6 — 文件系统（FS）与持久化存储**
+
+- 目标：替换或改进文件系统（例如扩展 inode 模型、增加 journaling、增强目录与权限）。
+- 要改的文件：
+  - `kernel/fs.c`、`kernel/fs.h`：文件系统核心逻辑（inode 管理、目录、链接）。
+  - `kernel/file.c`、`kernel/file.h`：文件描述符与文件操作封装。
+  - `mkfs/mkfs.c`：创建文件系统映像的工具，若 FS 格式变更必须更新。
+  - `kernel/bio.c`：块设备缓冲区接口（块读写缓存）。
+  - `kernel/virtio_disk.c`：磁盘设备驱动（对于 virtio），或替换为新的驱动。
+
+实现要点：
+- 设计 on-disk 格式时要兼顾可扩展性与向后兼容（可提供转换工具）。
+- 在实现新 FS 时，先保证读写基本文件，再实现目录、权限和特殊文件。同步修改 `mkfs` 以生成新的镜像。
+
+检查点：新的 FS 能被 `mkfs` 格式化，并能被内核挂载，用户能读写文件。
+
+**阶段 7 — 设备驱动（Drivers）与外设支持**
+
+- 目标：重构/替换驱动模型（使其支持模块化、动态加载或更严格的隔离）。
+- 要改的文件：
+  - `kernel/uart.c`：串口驱动，保持早期调试通道。
+  - `kernel/virtio_disk.c`、`kernel/virtio.h`：磁盘驱动与接口，如果引入新设备或总线（PCIe），新增文件。
+  - `kernel/plic.c`：中断控制器（PLIC）相关代码，管理中断路由与优先级。
+  - `kernel/bio.c`：块 I/O 缓冲层，可能需要更高效的缓存策略。
+
+实现要点：
+- 设计统一的设备注册与驱动模型（driver probe、attach），便于添加更多设备。
+- 为驱动添加调试日志和错误恢复策略。
+
+检查点：设备驱动工作正常（console、磁盘），能在不修改用户程序的前提下完成 I/O 操作。
+
+**阶段 8 — 用户空间工具链与用户程序（Userspace）**
+
+- 目标：决定是否保留原有 `user/` 程序 ABI；改造或替换用户空间库与 init 程序。
+- 需要改动的文件：
+  - `user/ulib.c`：用户态 C 库实现（syscall 封装、sprintf、字符串操作等）。
+  - `user/sh.c`、`user/init.c`：用户 shell 与 init 程序，可能替换为更复杂的 init 系统。
+  - `user/*` 下的测试和应用程序：根据新的 syscall/ABI 更新或重新编译。
+
+实现要点：
+- 如需扩大用户态能力（线程库、动态链接、ELF loader 升级），先设计好 ABI。
+- 如果修改 syscall 参数或行为，同步修改 `user/` 下所有依赖程序或提供兼容层。
+
+检查点：能启动 `init` 并执行常用用户程序（`ls`, `sh`, `cat` 等）。
