@@ -13,6 +13,8 @@
  */
 pagetable_t kernel_pagetable;
 
+static void log_kernel_vm_layout(void);
+
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
@@ -66,6 +68,7 @@ void
 kvminit(void)
 {
   kernel_pagetable = kvmmake();
+  log_kernel_vm_layout();
 }
 
 // Switch the current CPU's h/w page table register to
@@ -80,6 +83,14 @@ kvminithart()
 
   // flush stale entries from the TLB.
   sfence_vma();
+}
+
+// 打印 Hai-OS 内核虚拟内存布局，便于调试地址映射。
+static void
+log_kernel_vm_layout(void)
+{
+  klog(LOG_INFO, "Hai-OS kvminit: text=[%p, %p) data+phys=[%p, %p) tramp=%p",
+       (void*)KERNBASE, etext, etext, (void*)PHYSTOP, (void*)TRAMPOLINE);
 }
 
 // Return the address of the PTE in page table pagetable
@@ -462,8 +473,10 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
     return 0;
   }
   mem = (uint64) kalloc();
-  if(mem == 0)
+  if(mem == 0){
+    klog(LOG_ERR, "Hai-OS vmfault OOM: va=%p sz=%p pid=%d", (void*)va, (void*)p->sz, p->pid);
     return 0;
+  }
   memset((void *) mem, 0, PGSIZE);
   if (mappages(p->pagetable, va, PGSIZE, mem, PTE_W|PTE_U|PTE_R) != 0) {
     kfree((void *)mem);

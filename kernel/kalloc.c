@@ -21,13 +21,24 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  uint total_pages;     // 初始化时可分配的总页数
+  uint free_pages;      // 当前空闲页数
+  int low_warned;       // 低水位提醒是否已发
+  int crit_warned;      // 临界水位提醒是否已发
+  int oom_warned;       // OOM 是否已提醒
 } kmem;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  kmem.total_pages = 0;
+  kmem.free_pages = 0;
+  kmem.low_warned = 0;
+  kmem.crit_warned = 0;
+  kmem.oom_warned = 0;
   freerange(end, (void*)PHYSTOP);
+  klog(LOG_INFO, "Hai-OS kmem ready: total=%u free=%u pages", kmem.total_pages, kmem.free_pages);
 }
 
 void
@@ -36,7 +47,10 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  {
+    kmem.total_pages++;
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -59,6 +73,13 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
+  kmem.free_pages++;
+  if(kmem.free_pages > MEM_LOW_WATERMARK_PAGES){
+    kmem.low_warned = 0;
+  }
+  if(kmem.free_pages > MEM_CRIT_WATERMARK_PAGES){
+    kmem.crit_warned = 0;
+  }
   release(&kmem.lock);
 }
 
@@ -74,9 +95,36 @@ kalloc(void)
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
+  if(r && kmem.free_pages > 0)
+    kmem.free_pages--;
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+
+  // 低内存提醒（一次性告警，避免刷屏）
+  if(r){
+    if(kmem.free_pages <= MEM_CRIT_WATERMARK_PAGES && !kmem.crit_warned){
+      kmem.crit_warned = 1;
+      klog(LOG_WARN, "Hai-OS kmem critically low: free=%u pages", kmem.free_pages);
+    } else if(kmem.free_pages <= MEM_LOW_WATERMARK_PAGES && !kmem.low_warned){
+      kmem.low_warned = 1;
+      klog(LOG_INFO, "Hai-OS kmem low: free=%u pages", kmem.free_pages);
+    }
+  } else {
+    if(!kmem.oom_warned){
+      kmem.oom_warned = 1;
+      klog(LOG_ERR, "Hai-OS kmem exhausted: free=%u pages", kmem.free_pages);
+    }
+  }
   return (void*)r;
+}
+
+// 查询内存统计，供内核/后续 syscall 使用
+int
+kalloc_stats(uint *total, uint *free)
+{
+  if(total) *total = kmem.total_pages;
+  if(free) *free = kmem.free_pages;
+  return 0;
 }

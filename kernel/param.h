@@ -19,3 +19,7 @@
 #define PRI_DEFAULT    1
 #define PRI_MAX        3
 
+// Memory watermarks（pages）用于低内存提醒
+#define MEM_LOW_WATERMARK_PAGES      64
+#define MEM_CRIT_WATERMARK_PAGES     32
+
