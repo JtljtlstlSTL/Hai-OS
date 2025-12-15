@@ -97,6 +97,8 @@ struct proc {
   int budget;                 // remaining ticks in current slice 剩余时间片
   uint64 rtime;               // total runtime ticks 已运行的 tick 数
   uint64 sched_cnt;           // how many times scheduled 被调度次数
+  uint64 sched_stamp;         // when it became RUNNABLE, for fairness
+  uint64 page_faults;         // 用户态懒分配命中的缺页次数
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

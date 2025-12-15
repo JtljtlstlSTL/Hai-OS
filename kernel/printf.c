@@ -28,6 +28,9 @@ static char digits[] = "0123456789abcdef";
 static void vprintfmt(char *fmt, va_list ap);
 static void print_level_prefix(enum log_level level);
 
+// 全局日志级别，可运行时调节以抑制噪声。
+static enum log_level current_log_level = LOG_INFO;
+
 static void
 printint(long long xx, int base, int sign)
 {
@@ -86,6 +89,10 @@ klog(enum log_level level, char *fmt, ...)
 {
   va_list ap;
 
+  // 低于当前等级的日志直接丢弃（panic 之外），保持输出可控。
+  if(level < current_log_level)
+    return 0;
+
   if(panicking == 0)
     acquire(&pr.lock);
 
@@ -102,6 +109,20 @@ klog(enum log_level level, char *fmt, ...)
     release(&pr.lock);
 
   return 0;
+}
+
+enum log_level
+klog_set_level(enum log_level level)
+{
+  enum log_level previous = current_log_level;
+  current_log_level = level;
+  return previous;
+}
+
+enum log_level
+klog_get_level(void)
+{
+  return current_log_level;
 }
 
 void
@@ -191,10 +212,16 @@ print_level_prefix(enum log_level level)
   if(level >= 0 && level < (int)(sizeof(levels)/sizeof(levels[0])))
     tag = levels[level];
 
-  // 统一日志前缀格式：[Hai-OS LEVEL]
+  // 统一日志前缀格式：[Hai-OS hX tYYY LEVEL]
   consputc('[');
   const char *brand = "Hai-OS";
   while(*brand) consputc(*brand++);
+  consputc(' ');
+  consputc('h');
+  printint(cpuid(), 10, 0);
+  consputc(' ');
+  consputc('t');
+  printint((long long)r_time(), 10, 0);
   consputc(' ');
   for(const char *p = tag; *p; p++)
     consputc(*p);

@@ -5,7 +5,10 @@ Hai-OS
 - `kernel/entry.S` 使用 `riscv.h` 的 `PGSIZE` 计算每 hart 启动栈，去掉硬编码 4KB。
 - `kernel/kernel.ld` 导出 `__bss_start`/`__bss_end`，便于早期清零和调试。
 - `kernel/start.c` 在进入主逻辑前显式清零 BSS，确保初始内存一致。
-- `kernel/main.c` 在各 hart 启动提示后追加 “Hai-OS successfully booted.”，便于确认多核已拉起。
+- `kernel/main.c` 在主核启动时输出版本化的 Hai-OS 启动日志，便于确认多核已拉起。
+
+已完成改动（阶段 1）：
+- 启动栈按 `PGSIZE` 对齐，BSS 由 `start.c` 提前清零；主核以 Hai-OS 版本与 `r_time` 指纹打出第一条品牌日志，并同步多核后才放行；`hart2` 负责唯一的 ASCII Logo，强调自有启动体验。
 
 **阶段 2 — 内核基础设施与启动序列（Kernel Core）**
 
@@ -18,8 +21,8 @@ Hai-OS
   - `kernel/log.c`：日志子系统（如果存在），否则新增。
 
 已完成改动（阶段 2）：
-- `kernel/main.c` 将启动流程拆分为可读的阶段函数，并在各子系统初始化时输出 Hai-OS 风格日志，便于核对顺序和多核启动状态。
-- `kernel/printf.c` / `kernel/defs.h` 增加 `klog()` 与日志级别枚举，输出带 `[Hai-OS LEVEL]` 。
+- `kernel/main.c` 将启动流程拆分为可读阶段，并贯穿 Hai-OS 风格日志，核对顺序与多核状态。
+- `kernel/printf.c` / `kernel/defs.h`：`klog()` 现带 `[Hai-OS hX tYYY LEVEL]` 前缀（hart 与时间戳），支持运行时日志等级过滤，默认 INFO 但可抑制 DEBUG 噪声。
 
 **阶段 3 — 进程与调度（Processes & Scheduler）**
 
@@ -40,10 +43,14 @@ Hai-OS
 检查点：能够运行 `init` 进程，能 spawn 子进程并进行上下文切换；运行用户 `init` 脚本或 `sh`。
 
 已完成改动（阶段 3）：
-- 在 `param.h` 定义时间片/优先级常量，调度策略可配置。
-- 在 `proc.h` 为进程新增动态优先级、时间片预算、运行时间和调度次数统计。
-- `proc.c` 增加 `proc_tick()` 计时与简单优先级老化，调度器改为“高优先级优先，若同级则运行时间短者优先”，并在每次调度重置时间片、计数调度次数。
-- `trap.c` 的定时中断调用 `proc_tick()` 记账后再 `yield()`，保障时间片轮转受控。
+- 在 `param.h` 定义多档时间片（高优先级短片、低优先级长片），调度策略可配置。
+- 在 `proc.h` 为进程新增动态优先级、时间片预算、运行时间、调度次数与 RUNNABLE 时间戳。
+- `proc.c`：
+  - `proc_tick()` 针对 CPU hog 做优先级下调并按档位重置时间片；
+  - 交互型/IO 进程在 `wakeup()` 时被自动升优先级并重置时间片；
+  - `yield()` 自愿让出且未用完时间片时奖励升优先级；
+  - 调度器按优先级选择，同级挑等待最久者，减少饥饿。
+- `trap.c` 的定时中断继续先记账再 `yield()`。
 
 **阶段 4 — 虚拟内存与物理内存管理（VM & PM）**
 
@@ -61,11 +68,12 @@ Hai-OS
 
 检查点：用户进程地址空间独立，非法访问产生页面异常并被正确处理；运行内存压力测试（`_stressfs`, `_grind` 等）。
 
-  已完成改动（阶段 4）：
-  - `kalloc.c` 引入 Hai-OS 低/临界水位与 OOM 日志，统计总页/空闲页，空闲回升自动清除告警，初始化打印可用容量，并提供 `kalloc_stats()` 供后续查询。
-  - `param.h` 增加低/临界水位页数常量，供分配器触发提醒。
-  - `vm.c` 的 `kvminit()` 增加 Hai-OS 风格的内核虚拟内存布局日志，便于调试映射范围。
-  - `vm.c` 在懒缺页分配失败时输出 OOM 日志（包含 VA 和 pid），方便定位用户态内存压力。
+已完成改动（阶段 4）：
+- `kalloc.c` 引入 Hai-OS 低/临界水位与 OOM 日志，统计总页/空闲页，空闲回升自动清除告警，初始化打印可用容量，并提供 `kalloc_stats()` 供后续查询。
+- `kalloc.c` 统计接口加锁，并新增 `kalloc_pressure_percent()` 便于策略/调度读取内存压力。
+- `param.h` 增加低/临界水位页数常量，供分配器触发提醒。
+- `vm.c` 的 `kvminit()` 增加 Hai-OS 风格的内核虚拟内存布局日志，便于调试映射范围。
+- `vm.c` 在懒缺页分配失败时输出 OOM 日志（包含 VA 和 pid），成功时为进程累加缺页计数 `page_faults`，方便统计用户态内存压力。
 
 **阶段 5 — 系统调用与用户态 ABI（Syscalls & ABI）**
 

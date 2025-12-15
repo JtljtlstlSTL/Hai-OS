@@ -6,6 +6,8 @@
 
 volatile static int started = 0;
 
+static const char *haios_version = "Hai-OS/alpha";
+
 static void boot_banner(void);
 static void print_ascii_logo_once(void);
 static void primary_init_sequence(void);
@@ -27,8 +29,10 @@ main()
 static void
 boot_banner(void)
 {
-  // 启动第一条品牌化日志。
-  klog(LOG_INFO, "Hai-OS bootstrap sequence engaged");
+  // 启动第一条品牌化日志，附带版本与时间戳，做系统指纹。
+  uint64 boot_cycle = r_time();
+  klog(LOG_INFO, "Hai-OS bootstrap sequence engaged version=%s boot_cycle=%p",
+       haios_version, (void*)boot_cycle);
 }
 
 static void
@@ -60,6 +64,7 @@ primary_init_sequence(void)
   // 内存初始化：物理分配器与内核页表
   klog(LOG_INFO, "memory: kinit");
   kinit();         // physical page allocator
+  klog(LOG_INFO, "memory: pressure=%d%%", kalloc_pressure_percent());
 
   klog(LOG_INFO, "memory: kvminit");
   kvminit();       // create kernel page table

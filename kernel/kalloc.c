@@ -124,7 +124,21 @@ kalloc(void)
 int
 kalloc_stats(uint *total, uint *free)
 {
+  acquire(&kmem.lock);
   if(total) *total = kmem.total_pages;
   if(free) *free = kmem.free_pages;
+  release(&kmem.lock);
   return 0;
+}
+
+// 返回当前内存压力百分比（0-100），供调度/策略决策。
+int
+kalloc_pressure_percent(void)
+{
+  int percent = 0;
+  acquire(&kmem.lock);
+  if(kmem.total_pages)
+    percent = (int)(((kmem.total_pages - kmem.free_pages) * 100) / kmem.total_pages);
+  release(&kmem.lock);
+  return percent;
 }

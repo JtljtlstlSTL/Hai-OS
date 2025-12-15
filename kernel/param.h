@@ -14,10 +14,16 @@
 #define USERSTACK    1     // user stack pages
 
 // Scheduling
-#define TIME_SLICE_TICKS 5   // time slice per RUNNING process, in timer ticks
 #define PRI_MIN        0
 #define PRI_DEFAULT    1
 #define PRI_MAX        3
+#define PRI_LEVELS    (PRI_MAX + 1)
+
+// Priority-specific time slices (in timer ticks), high->low priority.
+#define SLICE_P0_TICKS 8
+#define SLICE_P1_TICKS 6
+#define SLICE_P2_TICKS 4
+#define SLICE_P3_TICKS 2
 
 // Memory watermarks（pages）用于低内存提醒
 #define MEM_LOW_WATERMARK_PAGES      64

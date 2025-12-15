@@ -26,6 +26,22 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+static inline int
+slice_for_priority(int prio)
+{
+  if(prio < PRI_MIN)
+    prio = PRI_MIN;
+  if(prio > PRI_MAX)
+    prio = PRI_MAX;
+  static const int slices[PRI_LEVELS] = {
+    SLICE_P0_TICKS,
+    SLICE_P1_TICKS,
+    SLICE_P2_TICKS,
+    SLICE_P3_TICKS,
+  };
+  return slices[prio];
+}
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -125,9 +141,11 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->priority = PRI_DEFAULT;
-  p->budget = TIME_SLICE_TICKS;
+  p->budget = slice_for_priority(p->priority);
   p->rtime = 0;
   p->sched_cnt = 0;
+  p->sched_stamp = ticks;
+  p->page_faults = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -173,9 +191,11 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->priority = PRI_DEFAULT;
-  p->budget = TIME_SLICE_TICKS;
+  p->budget = slice_for_priority(p->priority);
   p->rtime = 0;
   p->sched_cnt = 0;
+  p->sched_stamp = 0;
+  p->page_faults = 0;
   p->state = UNUSED;
 }
 
@@ -235,6 +255,8 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  p->sched_stamp = ticks;
+  p->budget = slice_for_priority(p->priority);
 
   release(&p->lock);
 }
@@ -255,8 +277,8 @@ proc_tick(void)
     p->budget--;
     if(p->budget <= 0){
       if(p->priority > PRI_MIN)
-        p->priority -= 1; // age: long runners slowly drop priority
-      p->budget = TIME_SLICE_TICKS;
+        p->priority -= 1; // CPU hogs 掉级
+      p->budget = slice_for_priority(p->priority);
     }
   }
   release(&p->lock);
@@ -331,6 +353,8 @@ kfork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  np->sched_stamp = ticks;
+  np->budget = slice_for_priority(np->priority);
   release(&np->lock);
 
   return pid;
@@ -470,20 +494,21 @@ scheduler(void)
 
     struct proc *best = 0;
     int best_prio = -1;
-    uint64 best_rtime = 0;
+    uint64 best_wait = 0;
+    uint64 now = ticks;
 
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         int pr = p->priority;
-        uint64 rt = p->rtime;
-        // 先比优先级，高者先；同级则运行时间短者先（近似短作业优先）。
-        if(pr > best_prio || (pr == best_prio && (best == 0 || rt < best_rtime))){
+        uint64 wait = (p->sched_stamp <= now) ? (now - p->sched_stamp) : 0;
+        // 优先级优先，同级选择等待最久者，避免饥饿。
+        if(pr > best_prio || (pr == best_prio && (best == 0 || wait > best_wait))){
           if(best)
             release(&best->lock);
           best = p;
           best_prio = pr;
-          best_rtime = rt;
+          best_wait = wait;
           continue;
         }
       }
@@ -493,8 +518,9 @@ scheduler(void)
     if(best){
       // switch to chosen process
       best->state = RUNNING;
-      best->budget = TIME_SLICE_TICKS;
+      best->budget = slice_for_priority(best->priority);
       best->sched_cnt++;
+      best->sched_stamp = now;
       c->proc = best;
       swtch(&c->context, &best->context);
       // process will return here when it yields/sleeps/exits
@@ -540,6 +566,12 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+  int slice = slice_for_priority(p->priority);
+  // 自愿让出 CPU 且未用完时间片时奖励升优先级，偏向交互型负载。
+  if(p->budget > slice / 2 && p->priority < PRI_MAX)
+    p->priority++;
+  p->budget = slice_for_priority(p->priority);
+  p->sched_stamp = ticks;
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -624,6 +656,10 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
+        if(p->priority < PRI_MAX)
+          p->priority++; // 交互型或 I/O 负载被优先调度
+        p->budget = slice_for_priority(p->priority);
+        p->sched_stamp = ticks;
         p->state = RUNNABLE;
       }
       release(&p->lock);

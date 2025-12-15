@@ -482,6 +482,7 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
     kfree((void *)mem);
     return 0;
   }
+  __sync_fetch_and_add(&p->page_faults, 1);
   return mem;
 }
 

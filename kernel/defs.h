@@ -65,6 +65,7 @@ void            ireclaim(int);
 // kalloc.c
 void*           kalloc(void);
 int             kalloc_stats(uint *total, uint *free);
+int             kalloc_pressure_percent(void);
 void            kfree(void *);
 void            kinit(void);
 
@@ -83,6 +84,8 @@ int             pipewrite(struct pipe*, uint64, int);
 // printf.c
 int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
 int             klog(enum log_level, char*, ...) __attribute__ ((format (printf, 2, 3)));
+enum log_level  klog_set_level(enum log_level level);
+enum log_level  klog_get_level(void);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 
