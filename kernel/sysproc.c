@@ -6,6 +6,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "hai_sysinfo.h"
+
+extern struct proc proc[NPROC];
 
 uint64
 sys_exit(void)
@@ -93,6 +96,61 @@ sys_kill(void)
 
   argint(0, &pid);
   return kkill(pid);
+}
+
+uint64
+sys_setpriority(void)
+{
+  int pid, prio;
+  argint(0, &pid);
+  argint(1, &prio);
+  return setpriority(pid, prio);
+}
+
+uint64
+sys_getpriority(void)
+{
+  int pid;
+  argint(0, &pid);
+  return getpriority(pid);
+}
+
+uint64
+sys_klogctl(void)
+{
+  int level;
+  argint(0, &level);
+  return klog_set_level(level);
+}
+
+uint64
+sys_sysinfo(void)
+{
+  uint64 uaddr;
+  struct hai_sysinfo info;
+  argaddr(0, &uaddr);
+
+  uint total = 0, freep = 0;
+  kalloc_stats(&total, &freep);
+  info.total_pages = total;
+  info.free_pages = freep;
+  info.pressure_pct = kalloc_pressure_percent();
+  info.ticks = ticks;
+  info.log_level = klog_get_level();
+
+  int procs = 0;
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state != UNUSED)
+      procs++;
+    release(&p->lock);
+  }
+  info.procs = procs;
+
+  if(copyout(myproc()->pagetable, uaddr, (char*)&info, sizeof(info)) < 0)
+    return -1;
+  return 0;
 }
 
 // return how many clock tick interrupts have occurred

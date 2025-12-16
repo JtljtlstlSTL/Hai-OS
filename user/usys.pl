@@ -42,3 +42,7 @@ entry("getpid");
 entry("sbrk");
 entry("pause");
 entry("uptime");
+entry("sysinfo");
+entry("setpriority");
+entry("getpriority");
+entry("klogctl");

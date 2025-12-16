@@ -691,6 +691,44 @@ kkill(int pid)
   return -1;
 }
 
+// 调整指定进程优先级；返回 0 成功，-1 失败。
+int
+setpriority(int pid, int prio)
+{
+  if(prio < PRI_MIN || prio > PRI_MAX)
+    return -1;
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      p->priority = prio;
+      p->budget = slice_for_priority(prio);
+      if(p->state == RUNNABLE)
+        p->sched_stamp = ticks;
+      release(&p->lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
+int
+getpriority(int pid)
+{
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      int pr = p->priority;
+      release(&p->lock);
+      return pr;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
 void
 setkilled(struct proc *p)
 {

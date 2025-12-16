@@ -91,6 +91,14 @@ Hai-OS
 
 检查点：能成功执行常用系统调用：`open/read/write/fork/exec/exit/kill/wait`。
 
+已完成改动（阶段 5）：
+- 新增 Hai-OS 专属观测与调度控制 ABI：
+  - `sysinfo(struct hai_sysinfo*)` 返回物理页总/空闲、内存压力、tick、进程数量与当前日志等级。
+  - `setpriority(pid, prio)` / `getpriority(pid)` 允许用户态调节/查询进程动态优先级（0-3），内核重置时间片并刷新调度戳。
+  - `klogctl(level)` 运行时切换内核日志等级（INFO/WARN/ERROR/DEBUG），即时生效。
+- 共享头 `kernel/hai_sysinfo.h` 暴露 ABI 结构体，用户库 `ulib.c`/`user.h` 提供封装。
+- 新用户程序 `sysinfo`：展示 Hai-OS sysinfo，支持 `klog <lvl>` 动态改日志等级，`setprio <pid> <prio>` 在线调节进程优先级，体现与原始 xv6 的诊断/调度差异化。
+
 **阶段 6 — 文件系统（FS）与持久化存储**
 
 - 目标：替换或改进文件系统（例如扩展 inode 模型、增加 journaling、增强目录与权限）。

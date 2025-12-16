@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct hai_sysinfo;
 
 enum log_level {
 	LOG_INFO = 0,
@@ -100,6 +101,8 @@ void            proc_freepagetable(pagetable_t, uint64);
 int             kkill(int);
 int             killed(struct proc*);
 void            setkilled(struct proc*);
+int             setpriority(int pid, int prio);
+int             getpriority(int pid);
 struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            procinit(void);

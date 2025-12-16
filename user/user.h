@@ -24,6 +24,10 @@ int getpid(void);
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
+int sysinfo(void *p);
+int setpriority(int pid, int prio);
+int getpriority(int pid);
+int klogctl(int level);
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -47,3 +51,5 @@ void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
 // umalloc.c
 void* malloc(uint);
 void free(void*);
+
+#include "kernel/hai_sysinfo.h"
