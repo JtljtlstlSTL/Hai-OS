@@ -13,6 +13,8 @@
  */
 pagetable_t kernel_pagetable;
 
+int cowfault(pagetable_t pagetable, uint64 va);
+
 static void log_kernel_vm_layout(void);
 
 extern char etext[];  // kernel.ld sets this to end of kernel code.
@@ -310,7 +312,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  int made_cow = 0;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,18 +321,26 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       continue;   // physical page hasn't been allocated
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    uint newflags = flags;
+    if(flags & PTE_W){
+      newflags = (flags & ~PTE_W) | PTE_COW;
+      made_cow = 1;
+    }
+    if(mappages(new, i, PGSIZE, pa, newflags) != 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if(kaddref(pa) < 0)
       goto err;
+    if(newflags != flags){
+      // downgrade parent mapping to COW as well.
+      *pte = PA2PTE(pa) | newflags;
     }
   }
+  if(made_cow)
+    sfence_vma();
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, (i / PGSIZE) + 1, 1);
   return -1;
 }
 
@@ -369,9 +379,16 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     }
 
     pte = walk(pagetable, va0, 0);
-    // forbid copyout over read-only user text pages.
-    if((*pte & PTE_W) == 0)
+    if(pte == 0)
       return -1;
+    // forbid copyout over read-only user text pages unless we can break COW.
+    if((*pte & PTE_W) == 0){
+      if((*pte & PTE_COW) && cowfault(pagetable, va0) == 0){
+        pa0 = walkaddr(pagetable, va0);
+      } else {
+        return -1;
+      }
+    }
       
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -382,6 +399,35 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     src += n;
     dstva = va0 + PGSIZE;
   }
+  return 0;
+}
+
+// Resolve a write fault on a copy-on-write page. Returns 0 on success.
+int
+cowfault(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  uint64 pa;
+  char *mem;
+  uint flags;
+
+  va = PGROUNDDOWN(va);
+  pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    return -1;
+  if((*pte & PTE_V) == 0 || (*pte & PTE_COW) == 0)
+    return -1;
+
+  pa = PTE2PA(*pte);
+  if((mem = kalloc()) == 0)
+    return -1;
+  memmove(mem, (char*)pa, PGSIZE);
+  flags = PTE_FLAGS(*pte);
+  flags = (flags | PTE_W) & ~PTE_COW;
+  *pte = PA2PTE((uint64)mem) | flags;
+  // drop the reference to the old shared page
+  kfree((void*)pa);
+  sfence_vma();
   return 0;
 }
 

@@ -26,7 +26,17 @@ struct {
   int low_warned;       // 低水位提醒是否已发
   int crit_warned;      // 临界水位提醒是否已发
   int oom_warned;       // OOM 是否已提醒
+  int ready;            // 完成初始化后开启双重释放检查
 } kmem;
+
+// 每个物理页的引用计数，按页号索引。
+static ushort refcnt[(PHYSTOP) / PGSIZE];
+
+static inline int
+pa_to_idx(uint64 pa)
+{
+  return pa / PGSIZE;
+}
 
 void
 kinit()
@@ -37,7 +47,9 @@ kinit()
   kmem.low_warned = 0;
   kmem.crit_warned = 0;
   kmem.oom_warned = 0;
+  kmem.ready = 0;
   freerange(end, (void*)PHYSTOP);
+  kmem.ready = 1;
   klog(LOG_INFO, "Hai-OS kmem ready: total=%u free=%u pages", kmem.total_pages, kmem.free_pages);
 }
 
@@ -61,16 +73,28 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  int idx;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
-
   r = (struct run*)pa;
+  idx = pa_to_idx((uint64)pa);
 
   acquire(&kmem.lock);
+  if(kmem.ready && refcnt[idx] == 0)
+    panic("kfree double");
+
+  if(refcnt[idx] > 1){
+    refcnt[idx]--;
+    release(&kmem.lock);
+    return;
+  }
+
+  // Fill with junk to catch dangling refs when the page is truly freed.
+  memset(pa, 1, PGSIZE);
+
+  refcnt[idx] = 0;
   r->next = kmem.freelist;
   kmem.freelist = r;
   kmem.free_pages++;
@@ -90,11 +114,15 @@ void *
 kalloc(void)
 {
   struct run *r;
+  int idx = -1;
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r){
     kmem.freelist = r->next;
+    idx = pa_to_idx((uint64)r);
+    refcnt[idx] = 1;
+  }
   if(r && kmem.free_pages > 0)
     kmem.free_pages--;
   release(&kmem.lock);
@@ -118,6 +146,37 @@ kalloc(void)
     }
   }
   return (void*)r;
+}
+
+// 增加物理页的引用计数，用于 COW 共享。
+int
+kaddref(uint64 pa)
+{
+  int idx;
+  if(pa >= PHYSTOP)
+    return -1;
+  idx = pa_to_idx(pa);
+  acquire(&kmem.lock);
+  if(refcnt[idx] == 0){
+    release(&kmem.lock);
+    return -1;
+  }
+  refcnt[idx]++;
+  release(&kmem.lock);
+  return refcnt[idx];
+}
+
+int
+krefcount(uint64 pa)
+{
+  int idx;
+  if(pa >= PHYSTOP)
+    return 0;
+  idx = pa_to_idx(pa);
+  acquire(&kmem.lock);
+  int c = refcnt[idx];
+  release(&kmem.lock);
+  return c;
 }
 
 // 查询内存统计，供内核/后续 syscall 使用
