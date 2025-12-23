@@ -47,6 +47,60 @@ fsinit(int dev) {
   ireclaim(dev);
 }
 
+// compute statfs by scanning superblock, bitmap and inode table
+void fs_statfs(struct hai_statfs *st)
+{
+  if(!st) return;
+  memset(st, 0, sizeof(*st));
+  st->magic = sb.magic;
+  st->size_blocks = sb.size;
+  st->data_blocks = sb.nblocks;
+  st->inode_count = sb.ninodes;
+  st->log_start = sb.logstart;
+  st->log_nblocks = sb.nlog;
+
+  // scan free block bitmap to compute free/used blocks
+  uint freeb = 0;
+  for(uint b = 0; b < sb.size; b += BPB){
+    struct buf *bp = bread(ROOTDEV, BBLOCK(b, sb));
+    for(uint bi = 0; bi < BPB && b + bi < sb.size; bi++){
+      int m = 1 << (bi % 8);
+      if((bp->data[bi/8] & m) == 0){
+        freeb++;
+      }
+    }
+    brelse(bp);
+  }
+  st->free_blocks = freeb;
+  st->used_blocks = (sb.size - freeb);
+
+  // scan inode table for free/used inodes
+  uint freei = 0, usedi = 0;
+  for(uint inum = 0; inum < sb.ninodes; inum += IPB){
+    struct buf *bp = bread(ROOTDEV, IBLOCK(inum, sb));
+    struct dinode *dip = (struct dinode*)bp->data;
+    for(uint ii = 0; ii < IPB && (inum + ii) < sb.ninodes; ii++){
+      if(dip[ii].type == 0) freei++; else usedi++;
+    }
+    brelse(bp);
+  }
+  st->free_inodes = freei;
+  st->used_inodes = usedi;
+
+  // runtime flags (placeholders)
+  st->has_journaling = 1; // xv6 has metadata redo log
+  st->has_checksum = 0;
+  st->has_quota = 0;
+
+  // pull bio counters via externs
+  extern uint bio_io_reads;
+  extern uint bio_io_writes;
+  extern uint bio_checksum_errors;
+  st->io_reads = bio_io_reads;
+  st->io_writes = bio_io_writes;
+  st->checksum_errors = bio_checksum_errors;
+}
+
 // Zero a block.
 static void
 bzero(int dev, int bno)

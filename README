@@ -99,21 +99,41 @@ Hai-OS
 - 共享头 `kernel/hai_sysinfo.h` 暴露 ABI 结构体，用户库 `ulib.c`/`user.h` 提供封装。
 - 新用户程序 `sysinfo`：展示 Hai-OS sysinfo，支持 `klog <lvl>` 动态改日志等级，`setprio <pid> <prio>` 在线调节进程优先级，体现与原始 xv6 的诊断/调度差异化。
 
-**阶段 6 — 文件系统（FS）与持久化存储**
+**阶段 6 — 文件系统（FS）与持久化存储**（第一步：可观测性与接口脚手架，后续再做结构大改）
 
-- 目标：替换或改进文件系统（例如扩展 inode 模型、增加 journaling、增强目录与权限）。
-- 要改的文件：
-  - `kernel/fs.c`、`kernel/fs.h`：文件系统核心逻辑（inode 管理、目录、链接）。
-  - `kernel/file.c`、`kernel/file.h`：文件描述符与文件操作封装。
-  - `mkfs/mkfs.c`：创建文件系统映像的工具，若 FS 格式变更必须更新。
-  - `kernel/bio.c`：块设备缓冲区接口（块读写缓存）。
-  - `kernel/virtio_disk.c`：磁盘设备驱动（对于 virtio），或替换为新的驱动。
+- 设计目标（Hai-OS 版 FS）
+  - 日志化 + 校验：引入写前日志（journaling）覆盖 inode/dirent/bitmap，数据块做 4KB 粒度校验和，防止 silent corruption。
+  - 目录加速：目录页采用哈希分桶或 B+Tree 索引，支持高并发 `lookup/readdir`；长文件名与子目录深度不再受 xv6 限制。
+  - 权限/配额：在 inode 增加简易 ACL 与每目录/每用户配额（硬/软限额），提供 `quotactl` 风格接口。
+  - 空间管理：bitmap 升级为 extent/段式分配器，减少碎片并为大文件提供顺序 IO；`mkfs` 支持可配置块大小与可选预留区。
+  - 调试与遥测：新增 `statfs`/`fsinfo` 接口，暴露日志区参数、I/O 计数、块/索引使用概况与校验错误计数（占位），便于 sysinfo/用户工具读取。
 
-实现要点：
-- 设计 on-disk 格式时要兼顾可扩展性与向后兼容（可提供转换工具）。
-- 在实现新 FS 时，先保证读写基本文件，再实现目录、权限和特殊文件。同步修改 `mkfs` 以生成新的镜像。
+- 预期改动面（核心文件）
+  - `kernel/fs.c`/`fs.h`：重写 inode on-disk 布局（增加 ACL、校验和、extent 头），目录项改为哈希/树结构，补充 statfs 接口。
+  - `kernel/file.c`/`file.h`：扩展 `fstat` 以暴露校验状态、extent 信息；新增 `quotactl`、`fsinfo` 相关分发。
+  - `kernel/bio.c`：页级校验计数（首阶段），后续增加校验和与失败日志；bio 缓存支持脏块批量刷写与写序列号（规划）。
+  - `kernel/log.c`：从简单 redo 日志升级为分段日志，支持元数据 + 可选数据 journaling，崩溃后快速重放。
+  - `mkfs/mkfs.c`：能生成新 on-disk 格式（可选块大小、预留区、初始 ACL/quota），并输出格式版本号供内核校验。
 
-检查点：新的 FS 能被 `mkfs` 格式化，并能被内核挂载，用户能读写文件。
+- 兼容性与工具
+  - 升级后镜像格式将不兼容原 xv6，需使用 Hai-OS `mkfs` 重建；可选提供只读兼容层或转换工具。
+  - 自带用户工具：`fsinfo`（已实现：打印 statfs/I/O/日志区参数）；后续：`fsck`（校验和/日志检查）、`quota`（查询/设置配额）。
+
+已完成（阶段 6 第一波）
+- 新增 `statfs` 系统调用与 `fsinfo` 用户程序，展示：总块/数据块/日志区参数、块/索引使用、I/O 次数与校验错误占位。
+- `bio` 暴露 `io_reads/io_writes/checksum_errors` 计数（首阶段）。
+- `fs.c` 提供 `fs_statfs()`，扫描位图/索引以统计使用与空闲。
+
+验收检查点（第一波）
+- `make fs.img && make qemu` 后，在 shell 中运行 `fsinfo` 输出各项统计。
+- 压力测试（`_stressfs`）下 `io_reads/io_writes` 计数持续变化。
+
+后续路线（第二波与之后）
+- 引入数据块校验和、日志分段化、目录索引与 extent 分配器；同步更新 `mkfs` 与 `fsck`/`quota` 工具。
+
+- 验收检查点
+  - `mkfs` 生成新格式镜像；挂载后 `fsinfo` 可显示 journaling/校验/配额状态。
+  - 目录/大文件在压力测试下无严重碎片，崩溃重放后元数据一致；校验错误可被检测并记录；配额超限阻止写入并有明确错误码。
 
 **阶段 7 — 设备驱动（Drivers）与外设支持**
 

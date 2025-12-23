@@ -105,6 +105,7 @@ extern uint64 sys_sysinfo(void);
 extern uint64 sys_setpriority(void);
 extern uint64 sys_getpriority(void);
 extern uint64 sys_klogctl(void);
+extern uint64 sys_statfs(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -134,6 +135,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_setpriority] sys_setpriority,
 [SYS_getpriority] sys_getpriority,
 [SYS_klogctl] sys_klogctl,
+[SYS_statfs]  sys_statfs,
 };
 
 void

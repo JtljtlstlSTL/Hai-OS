@@ -60,3 +60,30 @@ struct dirent {
   char name[DIRSIZ] __attribute__((nonstring));
 };
 
+
+// Hai-OS filesystem telemetry (Stage 6 scaffolding)
+struct hai_statfs {
+  uint magic;           // FSMAGIC
+  uint size_blocks;     // total blocks in image
+  uint data_blocks;     // number of data blocks
+  uint inode_count;     // total inodes
+  uint free_blocks;     // free blocks (scanned bitmap)
+  uint used_blocks;     // used blocks (data/log/inode/bmap)
+  uint free_inodes;     // free inodes (type==0)
+  uint used_inodes;     // used inodes
+
+  // runtime I/O counters (from bio)
+  uint io_reads;
+  uint io_writes;
+  uint checksum_errors; // runtime checksum verification failures (placeholder)
+
+  // journaling/checksum/quota flags (placeholders for future Stage 6)
+  uint has_journaling;  // 0/1
+  uint has_checksum;    // 0/1
+  uint has_quota;       // 0/1
+
+  // log head/tail (placeholders, exposed by log.c)
+  uint log_start;       // first log block
+  uint log_nblocks;     // total log blocks
+};
+

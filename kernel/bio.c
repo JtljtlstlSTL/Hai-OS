@@ -33,6 +33,11 @@ struct {
   struct buf head;
 } bcache;
 
+// runtime counters for Stage 6 telemetry
+uint bio_io_reads = 0;
+uint bio_io_writes = 0;
+uint bio_checksum_errors = 0; // placeholder, not used yet
+
 void
 binit(void)
 {
@@ -99,6 +104,7 @@ bread(uint dev, uint blockno)
     virtio_disk_rw(b, 0);
     b->valid = 1;
   }
+  bio_io_reads++;
   return b;
 }
 
@@ -109,6 +115,7 @@ bwrite(struct buf *b)
   if(!holdingsleep(&b->lock))
     panic("bwrite");
   virtio_disk_rw(b, 1);
+  bio_io_writes++;
 }
 
 // Release a locked buffer.

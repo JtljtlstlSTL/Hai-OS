@@ -46,3 +46,4 @@ entry("sysinfo");
 entry("setpriority");
 entry("getpriority");
 entry("klogctl");
+entry("statfs");

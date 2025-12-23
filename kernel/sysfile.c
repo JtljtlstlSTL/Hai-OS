@@ -34,6 +34,19 @@ argfd(int n, int *pfd, struct file **pf)
   return 0;
 }
 
+// statfs: export filesystem telemetry
+uint64
+sys_statfs(void)
+{
+  uint64 uaddr;
+  struct hai_statfs st;
+  argaddr(0, &uaddr);
+  fs_statfs(&st);
+  if(copyout(myproc()->pagetable, uaddr, (char*)&st, sizeof(st)) < 0)
+    return -1;
+  return 0;
+}
+
 // Allocate a file descriptor for the given file.
 // Takes over file reference from caller on success.
 static int
@@ -79,6 +92,7 @@ sys_read(void)
   return fileread(f, p, n);
 }
 
+  // statfs: export filesystem telemetry
 uint64
 sys_write(void)
 {

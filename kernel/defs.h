@@ -9,6 +9,7 @@ struct sleeplock;
 struct stat;
 struct superblock;
 struct hai_sysinfo;
+struct hai_statfs;
 
 enum log_level {
 	LOG_INFO = 0,
@@ -44,6 +45,7 @@ int             filewrite(struct file*, uint64, int n);
 
 // fs.c
 void            fsinit(int);
+void            fs_statfs(struct hai_statfs *);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);
