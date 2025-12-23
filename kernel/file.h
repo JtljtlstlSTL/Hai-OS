@@ -1,3 +1,5 @@
+#include "fs.h"
+
 struct file {
   enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE } type;
   int ref; // reference count
@@ -14,6 +16,21 @@ struct file {
 #define	mkdev(m,n)  ((uint)((m)<<16| (n)))
 
 // in-memory copy of an inode
+struct dircache_entry {
+  char name[DIRSIZ];
+  uint inum;
+  uint off; // byte offset within directory file
+};
+
+#define DIRCACHE_MAX 256
+struct dircache {
+  int valid;
+  uint size_snapshot;
+  int nentries;
+  int truncated; // 1 if directory larger than cache captured
+  struct dircache_entry entries[DIRCACHE_MAX];
+};
+
 struct inode {
   uint dev;           // Device number
   uint inum;          // Inode number
@@ -26,7 +43,10 @@ struct inode {
   short minor;
   short nlink;
   uint size;
-  uint addrs[NDIRECT+1];
+  uint flags;
+  uint checksum;
+  struct extent extents[NEXTENT];
+  struct dircache cache; // in-memory directory hash cache (only used for T_DIR)
 };
 
 // map major device number to device functions.

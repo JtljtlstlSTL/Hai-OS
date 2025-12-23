@@ -1,8 +1,10 @@
 // Shell.
 
 #include "kernel/types.h"
+#include "kernel/fs.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+#include "kernel/hai_sysinfo.h"
 
 // Parsed command representation
 #define EXEC  1
@@ -12,6 +14,18 @@
 #define BACK  5
 
 #define MAXARGS 10
+
+static int
+starts_with(const char *s, const char *p)
+{
+  while(*p){
+    if(*s != *p)
+      return 0;
+    s++;
+    p++;
+  }
+  return 1;
+}
 
 struct cmd {
   int type;
@@ -131,14 +145,84 @@ runcmd(struct cmd *cmd)
   exit(0);
 }
 
+static void
+print_prompt(void)
+{
+  struct hai_sysinfo si;
+  if(sysinfo(&si) == 0){
+    // 展示内存压力与进程数，突出 Hai-OS 观测能力
+    printf("[hai mem=%d%% procs=%d lvl=%d]$ ", si.pressure_pct, si.procs, si.log_level);
+  } else {
+    write(2, "$ ", 2);
+  }
+}
+
 int
 getcmd(char *buf, int nbuf)
 {
-  write(2, "$ ", 2);
+  print_prompt();
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
   if(buf[0] == 0) // EOF
     return -1;
+  return 0;
+}
+
+static void
+print_sysinfo_cli(void)
+{
+  struct hai_sysinfo si;
+  if(sysinfo(&si) < 0){
+    fprintf(2, "sysinfo failed\n");
+    return;
+  }
+  printf("sysinfo: mem_used=%d%% total_pages=%d free_pages=%d procs=%d ticks=%d log_level=%d\n",
+         si.pressure_pct, (int)si.total_pages, (int)si.free_pages, si.procs, (int)si.ticks, si.log_level);
+}
+
+static void
+print_fsinfo_cli(void)
+{
+  struct hai_statfs st;
+  if(statfs(&st) < 0){
+    fprintf(2, "statfs failed\n");
+    return;
+  }
+  printf("fsinfo: magic=0x%x ver=%d block=%d used=%d free=%d inodes=%d/%d checksum=%d\n",
+         st.magic, st.version, st.block_size, st.used_blocks, st.free_blocks, st.used_inodes, st.inode_count, st.has_checksum);
+}
+
+static int
+try_builtin(char *cmd)
+{
+  if(starts_with(cmd, "sysinfo")){
+    print_sysinfo_cli();
+    return 1;
+  }
+  if(starts_with(cmd, "fsinfo")){
+    print_fsinfo_cli();
+    return 1;
+  }
+  if(starts_with(cmd, "klog ")){
+    int lvl = atoi(cmd + 5);
+    int old = klogctl(lvl);
+    printf("klog level: old=%d new=%d\n", old, lvl);
+    return 1;
+  }
+  if(starts_with(cmd, "prio ")){
+    int pid = atoi(cmd + 5);
+    char *p = cmd + 5;
+    while(*p && *p != ' ')
+      p++;
+    while(*p == ' ')
+      p++;
+    int pr = atoi(p);
+    if(setpriority(pid, pr) < 0)
+      fprintf(2, "setpriority failed pid=%d pr=%d\n", pid, pr);
+    else
+      printf("setpriority ok pid=%d pr=%d\n", pid, pr);
+    return 1;
+  }
   return 0;
 }
 
@@ -168,6 +252,8 @@ main(void)
       cmd[strlen(cmd)-1] = 0;  // chop \n
       if(chdir(cmd+3) < 0)
         fprintf(2, "cannot cd %s\n", cmd+3);
+    } else if(try_builtin(cmd)) {
+      // handled
     } else {
       if(fork1() == 0)
         runcmd(parsecmd(cmd));

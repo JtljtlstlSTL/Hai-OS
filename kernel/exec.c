@@ -6,15 +6,18 @@
 #include "proc.h"
 #include "defs.h"
 #include "elf.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 static int loadseg(pde_t *, uint64, struct inode *, uint, uint);
 
 // map ELF permissions to PTE permission bits.
 int flags2perm(int flags)
 {
-    int perm = 0;
+    int perm = PTE_R; // always readable
     if(flags & 0x1)
-      perm = PTE_X;
+      perm |= PTE_X;
     if(flags & 0x2)
       perm |= PTE_W;
     return perm;
@@ -43,6 +46,12 @@ kexec(char *path, char **argv)
     return -1;
   }
   ilock(ip);
+  // Hai-OS: enforce NOEXEC flag before loading
+  if(ip->flags & 0x2){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
 
   // Read the ELF header.
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))

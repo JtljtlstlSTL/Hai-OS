@@ -5,7 +5,8 @@
 
 static void print_statfs(struct hai_statfs *st) {
   printf("Hai-OS FS info:\n");
-  printf(" magic=0x%x size=%d data=%d inodes=%d\n", st->magic, st->size_blocks, st->data_blocks, st->inode_count);
+  printf(" magic=0x%x ver=%d block=%d checksum=%d\n", st->magic, st->version, st->block_size, st->checksum_alg);
+  printf(" size=%d data=%d inodes=%d\n", st->size_blocks, st->data_blocks, st->inode_count);
   printf(" blocks: used=%d free=%d\n", st->used_blocks, st->free_blocks);
   printf(" inodes: used=%d free=%d\n", st->used_inodes, st->free_inodes);
   printf(" io: reads=%d writes=%d checksum_errors=%d\n", st->io_reads, st->io_writes, st->checksum_errors);

@@ -11,6 +11,27 @@
 
 char *argv[] = { "sh", 0 };
 
+static void
+print_bootinfo(void)
+{
+  struct hai_sysinfo si;
+  struct hai_statfs st;
+  int hs = sysinfo(&si);
+  int fs = statfs(&st);
+
+  printf("Hai-OS init: userspace online\n");
+  if(hs == 0)
+    printf(" sysinfo: ticks=%d procs=%d mem_used=%d%% free_pages=%d total_pages=%d log_level=%d\n",
+           (int)si.ticks, si.procs, si.pressure_pct, (int)si.free_pages, (int)si.total_pages, si.log_level);
+  else
+    printf(" sysinfo: unavailable\n");
+  if(fs == 0)
+    printf(" fsinfo: magic=0x%x ver=%d block=%d used=%d free=%d inodes used=%d free=%d checksum=%d\n",
+           st.magic, st.version, st.block_size, st.used_blocks, st.free_blocks, st.used_inodes, st.free_inodes, st.has_checksum);
+  else
+    printf(" fsinfo: unavailable\n");
+}
+
 int
 main(void)
 {
@@ -22,6 +43,8 @@ main(void)
   }
   dup(0);  // stdout
   dup(0);  // stderr
+
+  print_bootinfo();
 
   for(;;){
     printf("init: starting sh\n");

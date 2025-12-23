@@ -124,16 +124,14 @@ Hai-OS
 - `bio` 暴露 `io_reads/io_writes/checksum_errors` 计数（首阶段）。
 - `fs.c` 提供 `fs_statfs()`，扫描位图/索引以统计使用与空闲。
 
-验收检查点（第一波）
-- `make fs.img && make qemu` 后，在 shell 中运行 `fsinfo` 输出各项统计。
-- 压力测试（`_stressfs`）下 `io_reads/io_writes` 计数持续变化。
-
-后续路线（第二波与之后）
-- 引入数据块校验和、日志分段化、目录索引与 extent 分配器；同步更新 `mkfs` 与 `fsck`/`quota` 工具。
-
-- 验收检查点
-  - `mkfs` 生成新格式镜像；挂载后 `fsinfo` 可显示 journaling/校验/配额状态。
-  - 目录/大文件在压力测试下无严重碎片，崩溃重放后元数据一致；校验错误可被检测并记录；配额超限阻止写入并有明确错误码。
+已完成（阶段 6 巨大差异版，FSv2 Extent 版）
+- 彻底替换磁盘布局：超级块改为 Hai-OS FSv2（魔数 `HAIF`，版本号、块大小指数、校验算法占位）；inode 改为 6 段 extent + 校验预留位，去掉 NDIRECT/NINDIRECT（设为 0）并重新定义 MAXFILE。
+- `kernel/fs.c`：`bmap`/`itrunc`/`iupdate`/`ilock` 全部按 extent 路径工作，追加与映射统一走 extent 分配器；`fs_statfs` 输出 FS 版本、块大小、校验算法等。
+- `mkfs/mkfs.c`：生成 FSv2 超级块；`iappend` 重写为 extent 追加并维护连续块；构建出的 `fs.img` 与原 xv6 不兼容。
+- 用户态 `fsinfo` 同步展示 FS 版本、块大小和校验算法，方便确认新格式已生效。
+- 校验：引入 Adler-32 文件级校验，写入后自动重算并写入 inode；全文件读会核验并将失败计入 `bio_checksum_errors`，`statfs`/`fsinfo` 报告并标记 has_checksum=1。
+- 目录索引：inode 内置 DIRCACHE（哈希缓存）捕获最多 256 个 dirent，`dirlookup` 优先命中缓存，写目录时自动失效。
+- `mkfs` 生成 checksum_alg=Adler32 的超级块并为所有文件/目录预计算校验，保证新镜像开机即可信。
 
 **阶段 7 — 设备驱动（Drivers）与外设支持**
 
@@ -150,6 +148,11 @@ Hai-OS
 
 检查点：设备驱动工作正常（console、磁盘），能在不修改用户程序的前提下完成 I/O 操作。
 
+已完成改动（阶段 7）
+- 新增 `kernel/driver.c` 驱动框架：支持注册/初始化/按 hart 初始化，带统一 klog 事件；内置注册 PLIC 与 virtio-blk 驱动。
+- `main.c` 改为通过驱动框架初始化 PLIC/virtio，并在次级 hart 路径调用 `hart_init_drivers()`，形成统一的 per-hart 初始化入口。
+- `Makefile` 添加 `driver.o`，`defs.h` 暴露驱动框架接口，便于后续新增设备按统一入口接入。
+
 **阶段 8 — 用户空间工具链与用户程序（Userspace）**
 
 - 目标：决定是否保留原有 `user/` 程序 ABI；改造或替换用户空间库与 init 程序。
@@ -163,3 +166,8 @@ Hai-OS
 - 如果修改 syscall 参数或行为，同步修改 `user/` 下所有依赖程序或提供兼容层。
 
 检查点：能启动 `init` 并执行常用用户程序（`ls`, `sh`, `cat` 等）。
+
+已完成改动（阶段 8）
+- `init` 在启动 shell 前输出 Hai-OS 观测面板：`sysinfo` + `statfs`（FS 版本、块大小、校验特性、空间与 inode 使用），强调与原版 xv6 不同的可见性。
+- `sh` 提供 Hai 风格动态提示符 `[hai mem=XX% procs=YY lvl=Z]$`，实时反映内核内存压力/进程数/日志等级；新增内置命令：`sysinfo`（打印物理页与压力）、`fsinfo`（打印 FS v2 元数据与使用率）、`klog <lvl>`（调整内核日志等级）、`prio <pid> <level>`（用户态调节进程优先级）。
+- Shell 继续兼容管道/重定向/后台等语法，但默认提示与内置能力已与原版 xv6 明显区别。

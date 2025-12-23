@@ -26,6 +26,59 @@
 // only one device
 struct superblock sb; 
 
+static uint bmap(struct inode *ip, uint bn);
+
+// Adler-32 for block checksums
+static uint
+adler32_update(uint adler, const uchar *data, int len)
+{
+  const uint MOD_ADLER = 65521;
+  uint a = adler & 0xffff;
+  uint b = (adler >> 16) & 0xffff;
+  for(int i = 0; i < len; i++){
+    a = (a + data[i]) % MOD_ADLER;
+    b = (b + a) % MOD_ADLER;
+  }
+  return (b << 16) | a;
+}
+
+static uint
+inode_checksum(struct inode *ip)
+{
+  if(ip->type != T_FILE && ip->type != T_DIR)
+    return 1; // neutral checksum for non-regular files
+
+  uint blocks = (ip->size + BSIZE - 1) / BSIZE;
+  uint adler = 1; // Adler-32 init
+  for(uint bn = 0; bn < blocks; bn++){
+    uint addr = bmap(ip, bn);
+    if(addr == 0)
+      break;
+    struct buf *bp = bread(ip->dev, addr);
+    int chunk = BSIZE;
+    if(bn == blocks - 1){
+      uint tail = ip->size - (bn * BSIZE);
+      chunk = tail;
+    }
+    adler = adler32_update(adler, (uchar*)bp->data, chunk);
+    brelse(bp);
+  }
+  return adler;
+}
+
+static void
+verify_inode_checksum(struct inode *ip)
+{
+  if(ip->type != T_FILE && ip->type != T_DIR)
+    return;
+  uint calc = inode_checksum(ip);
+  if(calc != ip->checksum){
+    extern uint bio_checksum_errors;
+    bio_checksum_errors++;
+    printf("checksum mismatch: inum %d dev %d expect %u got %u\n", ip->inum, ip->dev, ip->checksum, calc);
+  }
+}
+
 // Read the super block.
 static void
 readsb(int dev, struct superblock *sb)
@@ -53,6 +106,9 @@ void fs_statfs(struct hai_statfs *st)
   if(!st) return;
   memset(st, 0, sizeof(*st));
   st->magic = sb.magic;
+  st->version = sb.version;
+  st->block_size = BSIZE;
+  st->checksum_alg = sb.checksum_alg;
   st->size_blocks = sb.size;
   st->data_blocks = sb.nblocks;
   st->inode_count = sb.ninodes;
@@ -89,7 +145,7 @@ void fs_statfs(struct hai_statfs *st)
 
   // runtime flags (placeholders)
   st->has_journaling = 1; // xv6 has metadata redo log
-  st->has_checksum = 0;
+    st->has_checksum = 1;
   st->has_quota = 0;
 
   // pull bio counters via externs
@@ -263,6 +319,7 @@ ialloc(uint dev, short type)
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));
       dip->type = type;
+      dip->checksum = 1; // Adler-32 neutral for empty
       log_write(bp);   // mark it allocated on the disk
       brelse(bp);
       return iget(dev, inum);
@@ -290,7 +347,8 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
-  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
+  dip->checksum = ip->checksum;
+  memmove(dip->extents, ip->extents, sizeof(ip->extents));
   log_write(bp);
   brelse(bp);
 }
@@ -363,7 +421,11 @@ ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
-    memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
+    ip->checksum = dip->checksum;
+    memmove(ip->extents, dip->extents, sizeof(ip->extents));
+    ip->cache.valid = 0;
+    ip->cache.truncated = 0;
+    ip->cache.nentries = 0;
     brelse(bp);
     ip->valid = 1;
     if(ip->type == 0)
@@ -446,55 +508,63 @@ ireclaim(int dev)
   }
 }
 
-// Inode content
-//
-// The content (data) associated with each inode is stored
-// in blocks on the disk. The first NDIRECT block numbers
-// are listed in ip->addrs[].  The next NINDIRECT blocks are
-// listed in block ip->addrs[NDIRECT].
+// Inode content (Hai-OS FSv2): extent-based layout.
 
-// Return the disk block address of the nth block in inode ip.
-// If there is no such block, bmap allocates one.
-// returns 0 if out of disk space.
+// Append a physical block into inode's extent list, merging if contiguous.
+static int
+extent_append(struct inode *ip, uint newb)
+{
+  for(int i = 0; i < NEXTENT; i++){
+    if(ip->extents[i].len == 0){
+      ip->extents[i].start = newb;
+      ip->extents[i].len = 1;
+      return 0;
+    }
+  }
+  // try to extend last non-empty if contiguous
+  for(int i = NEXTENT-1; i >= 0; i--){
+    if(ip->extents[i].len){
+      uint tail = ip->extents[i].start + ip->extents[i].len;
+      if(tail == newb){
+        ip->extents[i].len += 1;
+        return 0;
+      }
+      break;
+    }
+  }
+  return -1;
+}
+
+// Map logical block number bn to physical block, allocating as needed.
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  uint addr, *a;
-  struct buf *bp;
+  uint logical_base = 0;
 
-  if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0){
-      addr = balloc(ip->dev);
-      if(addr == 0)
-        return 0;
-      ip->addrs[bn] = addr;
+  // find existing extent covering bn
+  for(int i = 0; i < NEXTENT; i++){
+    uint len = ip->extents[i].len;
+    if(len == 0)
+      continue;
+    if(bn < logical_base + len){
+      return ip->extents[i].start + (bn - logical_base);
     }
-    return addr;
-  }
-  bn -= NDIRECT;
-
-  if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0){
-      addr = balloc(ip->dev);
-      if(addr == 0)
-        return 0;
-      ip->addrs[NDIRECT] = addr;
-    }
-    bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
-      addr = balloc(ip->dev);
-      if(addr){
-        a[bn] = addr;
-        log_write(bp);
-      }
-    }
-    brelse(bp);
-    return addr;
+    logical_base += len;
   }
 
-  panic("bmap: out of range");
+  // allocate forward until we reach bn
+  while(logical_base <= bn){
+    uint nb = balloc(ip->dev);
+    if(nb == 0)
+      return 0;
+    if(extent_append(ip, nb) < 0)
+      panic("bmap: extent overflow");
+    if(logical_base == bn)
+      return nb;
+    logical_base++;
+  }
+
+  panic("bmap: unreachable");
 }
 
 // Truncate inode (discard contents).
@@ -502,30 +572,20 @@ bmap(struct inode *ip, uint bn)
 void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
-
-  for(i = 0; i < NDIRECT; i++){
-    if(ip->addrs[i]){
-      bfree(ip->dev, ip->addrs[i]);
-      ip->addrs[i] = 0;
+  for(int i = 0; i < NEXTENT; i++){
+    if(ip->extents[i].len == 0)
+      continue;
+    for(uint b = 0; b < ip->extents[i].len; b++){
+      bfree(ip->dev, ip->extents[i].start + b);
     }
+    ip->extents[i].start = 0;
+    ip->extents[i].len = 0;
   }
-
-  if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
-    a = (uint*)bp->data;
-    for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
-        bfree(ip->dev, a[j]);
-    }
-    brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
-    ip->addrs[NDIRECT] = 0;
-  }
-
   ip->size = 0;
+  ip->checksum = 1;
+  ip->cache.valid = 0;
+  ip->cache.truncated = 0;
+  ip->cache.nentries = 0;
   iupdate(ip);
 }
 
@@ -550,6 +610,7 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
+  uint start_off = off;
 
   if(off > ip->size || off + n < off)
     return 0;
@@ -569,6 +630,10 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
     }
     brelse(bp);
   }
+
+  // If the caller read the whole file from the beginning, verify checksum.
+  if(start_off == 0 && tot == ip->size)
+    verify_inode_checksum(ip);
   return tot;
 }
 
@@ -607,6 +672,15 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
   if(off > ip->size)
     ip->size = off;
 
+  // directory writes invalidate cache; file writes recompute checksum
+  if(ip->type == T_DIR){
+    ip->cache.valid = 0;
+    ip->cache.truncated = 0;
+    ip->cache.nentries = 0;
+  }
+  if(ip->type == T_FILE || ip->type == T_DIR)
+    ip->checksum = inode_checksum(ip);
+
   // write the i-node back to disk even if the size didn't change
   // because the loop above might have called bmap() and added a new
   // block to ip->addrs[].
@@ -616,6 +690,62 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 }
 
 // Directories
+
+static void
+dircache_rebuild(struct inode *dp)
+{
+  dp->cache.valid = 0;
+  dp->cache.truncated = 0;
+  dp->cache.size_snapshot = dp->size;
+  dp->cache.nentries = 0;
+
+  struct dirent de;
+  for(uint off = 0; off < dp->size; off += sizeof(de)){
+    if(dp->cache.nentries >= DIRCACHE_MAX){
+      dp->cache.truncated = 1;
+      break;
+    }
+    if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+      panic("dircache rebuild read");
+    if(de.inum == 0)
+      continue;
+    struct dircache_entry *e = &dp->cache.entries[dp->cache.nentries++];
+    e->inum = de.inum;
+    e->off = off;
+    memmove(e->name, de.name, DIRSIZ);
+  }
+  dp->cache.valid = 1;
+}
+
+static int
+dircache_lookup(struct inode *dp, char *name, uint *inum, uint *poff)
+{
+  if(dp->cache.valid && dp->cache.size_snapshot == dp->size){
+    for(int i = 0; i < dp->cache.nentries; i++){
+      if(namecmp(name, dp->cache.entries[i].name) == 0){
+        if(inum)
+          *inum = dp->cache.entries[i].inum;
+        if(poff)
+          *poff = dp->cache.entries[i].off;
+        return 1;
+      }
+    }
+    if(!dp->cache.truncated)
+      return 0; // cache fully covers directory, no need to scan disk
+  }
+  // rebuild cache and retry once
+  dircache_rebuild(dp);
+  for(int i = 0; i < dp->cache.nentries; i++){
+    if(namecmp(name, dp->cache.entries[i].name) == 0){
+      if(inum)
+        *inum = dp->cache.entries[i].inum;
+      if(poff)
+        *poff = dp->cache.entries[i].off;
+      return 1;
+    }
+  }
+  return 0;
+}
 
 int
 namecmp(const char *s, const char *t)
@@ -633,6 +763,11 @@ dirlookup(struct inode *dp, char *name, uint *poff)
 
   if(dp->type != T_DIR)
     panic("dirlookup not DIR");
+
+  // Fast path: in-memory directory cache
+  if(dircache_lookup(dp, name, &inum, poff)){
+    return iget(dp->dev, inum);
+  }
 
   for(off = 0; off < dp->size; off += sizeof(de)){
     if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))

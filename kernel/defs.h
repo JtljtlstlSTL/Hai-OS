@@ -10,6 +10,7 @@ struct stat;
 struct superblock;
 struct hai_sysinfo;
 struct hai_statfs;
+struct driver;
 
 enum log_level {
 	LOG_INFO = 0,
@@ -17,6 +18,11 @@ enum log_level {
 	LOG_ERR  = 2,
 	LOG_DEBUG = 3,
 };
+
+// driver.c
+void            register_builtin_drivers(void);
+void            init_drivers(void);
+void            hart_init_drivers(void);
 
 // bio.c
 void            binit(void);

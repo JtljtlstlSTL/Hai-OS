@@ -78,10 +78,11 @@ primary_init_sequence(void)
   trapinit();      // trap vectors
   trapinithart();  // install kernel trap vector
 
-  // 中断控制器
-  klog(LOG_INFO, "irq: plicinit");
-  plicinit();      // set up interrupt controller
-  plicinithart();  // ask PLIC for device interrupts
+  // 驱动注册与初始化
+  klog(LOG_INFO, "drv: register builtins");
+  register_builtin_drivers();
+  init_drivers();
+  hart_init_drivers();
 
   // 文件系统相关子系统
   klog(LOG_INFO, "fs: buffer cache");
@@ -90,8 +91,7 @@ primary_init_sequence(void)
   iinit();         // inode table
   klog(LOG_INFO, "fs: file table");
   fileinit();      // file table
-  klog(LOG_INFO, "fs: virtio disk");
-  virtio_disk_init(); // emulated hard disk
+  // virtio 磁盘由驱动框架初始化
 
   // 启动第一个用户进程
   klog(LOG_INFO, "user: init process");
@@ -112,7 +112,7 @@ secondary_init_sequence(void)
   klog(LOG_INFO, "hart %d starting", cpuid());
   kvminithart();    // turn on paging
   trapinithart();   // install kernel trap vector
-  plicinithart();   // ask PLIC for device interrupts
+  hart_init_drivers();
   klog(LOG_INFO, "hart %d entered scheduler", cpuid());
   if(cpuid() == 2)
     print_ascii_logo_once();
