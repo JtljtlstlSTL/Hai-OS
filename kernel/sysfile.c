@@ -517,3 +517,25 @@ sys_pipe(void)
   }
   return 0;
 }
+
+// Recompute and verify checksum for a single file
+uint64
+sys_fverify(void)
+{
+  char path[MAXPATH];
+  struct inode *ip;
+
+  begin_op();
+  if(argstr(0, path, MAXPATH) < 0 || (ip = namei(path)) == 0){
+    end_op();
+    return -1;
+  }
+
+  ilock(ip);
+  uint calc = inode_checksum(ip);
+  int ok = (calc == ip->checksum);
+  iunlockput(ip);
+  end_op();
+
+  return ok ? 0 : -1;
+}

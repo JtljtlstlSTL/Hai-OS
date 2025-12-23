@@ -29,6 +29,7 @@ int sysinfo(void *p);
 int setpriority(int pid, int prio);
 int getpriority(int pid);
 int klogctl(int level);
+int fverify(const char *path);
 
 // ulib.c
 int stat(const char*, struct stat*);

@@ -26,12 +26,16 @@ struct superblock {
   uint bmapstart;    // First free map block
   uint blocksz_exp;  // log2(block size)
   uint checksum_alg; // 0 none, 1 adler32 (planned)
+  uint data_csum;    // 0 none, 1 per-file checksum enabled
+  uint log_segments; // journaling segments (nlog currently)
+  uint quota_start;  // reserved for quota table start
+  uint quota_blocks; // reserved blocks for quota
 };
 
 #define FSMAGIC 0x48414946  // 'HAIF' Hai-OS FSv2
 
 // Extent-based layout
-#define NEXTENT   6
+#define NEXTENT   14  // 14 extents keeps dinode size aligned (1024 % (16+8*N)==0)
 struct extent {
   uint start;   // start block
   uint len;     // length in blocks
@@ -64,8 +68,9 @@ struct dinode {
 // Block of free map containing bit for block b
 #define BBLOCK(b, sb) ((b)/BPB + sb.bmapstart)
 
-// Extent-based MAXFILE: max logical blocks per file (cap extents to 1024 blocks each)
-#define MAXFILE (NEXTENT * 1024)
+// Extent-based MAXFILE: cap total file blocks so it fits in default 2K-block fs image
+// Keep this conservative (1K blocks ~= 1MB with BSIZE=1024) to avoid exhausting space in tests.
+#define MAXFILE 1024
 
 // Directory is a file containing a sequence of dirent structures.
 #define DIRSIZ 14
@@ -84,6 +89,7 @@ struct hai_statfs {
   uint version;         // FS layout version
   uint block_size;      // in bytes
   uint checksum_alg;    // 0 none, 1 adler32 (reserved)
+  uint data_csum;       // 0 none, 1 per-file checksum
   uint size_blocks;     // total blocks in image
   uint data_blocks;     // number of data blocks
   uint inode_count;     // total inodes
@@ -105,6 +111,9 @@ struct hai_statfs {
   // log head/tail (placeholders, exposed by log.c)
   uint log_start;       // first log block
   uint log_nblocks;     // total log blocks
+  uint log_segments;    // journaling segments
+  uint quota_start;     // quota table start (reserved)
+  uint quota_blocks;    // quota table length (reserved)
 };
 
 #endif // HAI_FS_H

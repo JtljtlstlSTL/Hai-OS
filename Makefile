@@ -146,6 +146,7 @@ UPROGS=\
 	$U/_dorphan\
 	$U/_sysinfo\
 	$U/_fsinfo\
+	$U/_fverify\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

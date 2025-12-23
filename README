@@ -132,6 +132,7 @@ Hai-OS
 - 校验：引入 Adler-32 文件级校验，写入后自动重算并写入 inode；全文件读会核验并将失败计入 `bio_checksum_errors`，`statfs`/`fsinfo` 报告并标记 has_checksum=1。
 - 目录索引：inode 内置 DIRCACHE（哈希缓存）捕获最多 256 个 dirent，`dirlookup` 优先命中缓存，写目录时自动失效。
 - `mkfs` 生成 checksum_alg=Adler32 的超级块并为所有文件/目录预计算校验，保证新镜像开机即可信。
+- FSv2 增强：超级块新增 data_csum/log_segments/quota 预留字段，`statfs/fsinfo` 可见；新增 syscall `fverify(path)` 重新计算并校验单文件校验和；用户态 `fverify` 命令批量校验文件。
 
 **阶段 7 — 设备驱动（Drivers）与外设支持**
 
@@ -171,3 +172,8 @@ Hai-OS
 - `init` 在启动 shell 前输出 Hai-OS 观测面板：`sysinfo` + `statfs`（FS 版本、块大小、校验特性、空间与 inode 使用），强调与原版 xv6 不同的可见性。
 - `sh` 提供 Hai 风格动态提示符 `[hai mem=XX% procs=YY lvl=Z]$`，实时反映内核内存压力/进程数/日志等级；新增内置命令：`sysinfo`（打印物理页与压力）、`fsinfo`（打印 FS v2 元数据与使用率）、`klog <lvl>`（调整内核日志等级）、`prio <pid> <level>`（用户态调节进程优先级）。
 - Shell 继续兼容管道/重定向/后台等语法，但默认提示与内置能力已与原版 xv6 明显区别。
+
+FS 强化：目录索引（哈希/B+树）、数据块校验表、日志分段化/数据 journaling 开关、配额占位与 fsck-lite。
+调度/内存：CFS/MLFQ 调度、COW fork、slab 小对象分配器、guard pages。
+用户态/ABI：spawn/sysctl 风格查询（schedinfo/vmstat）、eventfd/timerfd 占位、top/ps/devinfo/dmesg 内置工具。
+驱动框架增强：devinfo 注册表、virtio 队列统计、UART 环缓/流控占位

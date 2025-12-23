@@ -52,6 +52,7 @@ int             filewrite(struct file*, uint64, int n);
 // fs.c
 void            fsinit(int);
 void            fs_statfs(struct hai_statfs *);
+uint            inode_checksum(struct inode *ip);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);

@@ -25,3 +25,4 @@
 #define SYS_getpriority 24
 #define SYS_klogctl 25
 #define SYS_statfs 26
+#define SYS_fverify 27

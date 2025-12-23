@@ -47,3 +47,4 @@ entry("setpriority");
 entry("getpriority");
 entry("klogctl");
 entry("statfs");
+entry("fverify");

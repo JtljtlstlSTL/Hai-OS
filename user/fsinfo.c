@@ -6,12 +6,13 @@
 static void print_statfs(struct hai_statfs *st) {
   printf("Hai-OS FS info:\n");
   printf(" magic=0x%x ver=%d block=%d checksum=%d\n", st->magic, st->version, st->block_size, st->checksum_alg);
-  printf(" size=%d data=%d inodes=%d\n", st->size_blocks, st->data_blocks, st->inode_count);
+  printf(" data_csum=%d size=%d data=%d inodes=%d\n", st->data_csum, st->size_blocks, st->data_blocks, st->inode_count);
   printf(" blocks: used=%d free=%d\n", st->used_blocks, st->free_blocks);
   printf(" inodes: used=%d free=%d\n", st->used_inodes, st->free_inodes);
   printf(" io: reads=%d writes=%d checksum_errors=%d\n", st->io_reads, st->io_writes, st->checksum_errors);
   printf(" features: journaling=%d checksum=%d quota=%d\n", st->has_journaling, st->has_checksum, st->has_quota);
-  printf(" log: start=%d nblocks=%d\n", st->log_start, st->log_nblocks);
+  printf(" log: start=%d nblocks=%d segments=%d\n", st->log_start, st->log_nblocks, st->log_segments);
+  printf(" quota: start=%d blocks=%d\n", st->quota_start, st->quota_blocks);
 }
 
 int

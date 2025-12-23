@@ -42,7 +42,7 @@ adler32_update(uint adler, const uchar *data, int len)
   return (b << 16) | a;
 }
 
-static uint
+uint
 inode_checksum(struct inode *ip)
 {
   if(ip->type != T_FILE && ip->type != T_DIR)
@@ -109,11 +109,15 @@ void fs_statfs(struct hai_statfs *st)
   st->version = sb.version;
   st->block_size = BSIZE;
   st->checksum_alg = sb.checksum_alg;
+  st->data_csum = sb.data_csum;
   st->size_blocks = sb.size;
   st->data_blocks = sb.nblocks;
   st->inode_count = sb.ninodes;
   st->log_start = sb.logstart;
   st->log_nblocks = sb.nlog;
+  st->log_segments = sb.log_segments;
+  st->quota_start = sb.quota_start;
+  st->quota_blocks = sb.quota_blocks;
 
   // scan free block bitmap to compute free/used blocks
   uint freeb = 0;
@@ -167,6 +171,30 @@ bzero(int dev, int bno)
   memset(bp->data, 0, BSIZE);
   log_write(bp);
   brelse(bp);
+}
+
+// Prefer to allocate a specific block if it's free; otherwise return 0.
+static uint
+balloc_prefer(uint dev, uint b)
+{
+  if(b >= sb.size)
+    return 0;
+
+  struct buf *bp = bread(dev, BBLOCK(b, sb));
+  int bi = b % BPB;
+  int m = 1 << (bi % 8);
+  if((bp->data[bi/8] & m) != 0){
+    brelse(bp);
+    return 0; // already allocated
+  }
+
+  // mark allocated
+  bp->data[bi/8] |= m;
+  log_write(bp);
+  brelse(bp);
+
+  bzero(dev, b);
+  return b;
 }
 
 // Blocks.
@@ -540,12 +568,15 @@ static uint
 bmap(struct inode *ip, uint bn)
 {
   uint logical_base = 0;
+  uint last_start = 0, last_len = 0;
 
   // find existing extent covering bn
   for(int i = 0; i < NEXTENT; i++){
     uint len = ip->extents[i].len;
     if(len == 0)
       continue;
+    last_start = ip->extents[i].start;
+    last_len = len;
     if(bn < logical_base + len){
       return ip->extents[i].start + (bn - logical_base);
     }
@@ -554,11 +585,23 @@ bmap(struct inode *ip, uint bn)
 
   // allocate forward until we reach bn
   while(logical_base <= bn){
-    uint nb = balloc(ip->dev);
+    uint nb = 0;
+    // try to stay contiguous with last extent to avoid overflow
+    if(last_len > 0)
+      nb = balloc_prefer(ip->dev, last_start + last_len);
+    if(nb == 0)
+      nb = balloc(ip->dev);
     if(nb == 0)
       return 0;
     if(extent_append(ip, nb) < 0)
       panic("bmap: extent overflow");
+    last_start = nb; // extent_append merges when contiguous
+    if(ip->extents[0].len)
+      last_len = ip->extents[0].len; // updated after append; recompute tail
+    for(int i = 0; i < NEXTENT; i++){
+      if(ip->extents[i].len)
+        last_len = ip->extents[i].len, last_start = ip->extents[i].start;
+    }
     if(logical_base == bn)
       return nb;
     logical_base++;
