@@ -2,6 +2,7 @@
 #include "param.h"
 #include "riscv.h"
 #include "defs.h"
+#include "hai_sysinfo.h"
 
 // 简单的驱动注册/初始化框架，提供统一日志与按 hart 初始化。
 
@@ -91,5 +92,18 @@ hart_init_drivers(void)
       drivers[i].hart_init();
       klog(LOG_INFO, "driver: hart-init name=%s", drivers[i].name);
     }
+  }
+}
+
+// 将驱动表快照导出给用户态 devinfo。
+void
+driver_snapshot(struct hai_devinfo *info)
+{
+  int count = (ndrivers < HAI_MAX_DRIVERS) ? ndrivers : HAI_MAX_DRIVERS;
+  info->count = count;
+  for(int i = 0; i < count; i++){
+    safestrcpy(info->devs[i].name, drivers[i].name, sizeof(info->devs[i].name));
+    info->devs[i].cls = drivers[i].cls;
+    info->devs[i].inited = drivers[i].inited;
   }
 }

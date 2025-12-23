@@ -26,3 +26,10 @@
 #define SYS_klogctl 25
 #define SYS_statfs 26
 #define SYS_fverify 27
+#define SYS_spawn 28
+#define SYS_schedinfo 29
+#define SYS_vmstat 30
+#define SYS_eventfd 31
+#define SYS_timerfd 32
+#define SYS_devinfo 33
+#define SYS_dmesg 34

@@ -1,5 +1,7 @@
 #define SBRK_ERROR ((char *)-1)
 
+#include "kernel/hai_sysinfo.h"
+
 struct stat;
 
 // system calls
@@ -30,6 +32,13 @@ int setpriority(int pid, int prio);
 int getpriority(int pid);
 int klogctl(int level);
 int fverify(const char *path);
+int spawn(const char *path, char *const argv[]);
+int schedinfo(struct hai_schedinfo *out);
+int vmstat(struct hai_vmstat *out);
+int devinfo(struct hai_devinfo *out);
+int eventfd(void);
+int timerfd(void);
+int dmesg(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

@@ -10,3 +10,54 @@ struct hai_sysinfo {
   int    procs;          // 非 UNUSED 进程数
   int    log_level;      // 当前内核日志等级
 };
+
+#define HAI_MAX_PROCSNAPSHOT 32
+
+// 进程快照信息，用于 top/ps 等工具。
+struct hai_procinfo {
+  int pid;
+  int state;
+  int priority;
+  uint64 rtime;
+  uint64 sched_cnt;
+  uint64 page_faults;
+  char name[16];
+};
+
+struct hai_schedinfo {
+  int runnable;
+  int running;
+  int sleeping;
+  int zombies;
+  int used;
+  uint64 ticks;
+  int nreturned;
+  struct hai_procinfo procs[HAI_MAX_PROCSNAPSHOT];
+};
+
+struct hai_vmstat {
+  uint64 total_pages;
+  uint64 free_pages;
+  int pressure_pct;
+  uint64 page_faults;
+};
+
+#define HAI_MAX_DRIVERS 8
+
+enum hai_driver_class {
+  HAI_DRV_IRQ = 0,
+  HAI_DRV_BLOCK = 1,
+  HAI_DRV_SERIAL = 2,
+  HAI_DRV_OTHER = 3,
+};
+
+struct hai_driver {
+  char name[16];
+  int cls;
+  int inited;
+};
+
+struct hai_devinfo {
+  int count;
+  struct hai_driver devs[HAI_MAX_DRIVERS];
+};

@@ -107,6 +107,13 @@ extern uint64 sys_getpriority(void);
 extern uint64 sys_klogctl(void);
 extern uint64 sys_statfs(void);
 extern uint64 sys_fverify(void);
+extern uint64 sys_spawn(void);
+extern uint64 sys_schedinfo(void);
+extern uint64 sys_vmstat(void);
+extern uint64 sys_eventfd(void);
+extern uint64 sys_timerfd(void);
+extern uint64 sys_devinfo(void);
+extern uint64 sys_dmesg(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -138,6 +145,13 @@ static uint64 (*syscalls[])(void) = {
 [SYS_klogctl] sys_klogctl,
 [SYS_statfs]  sys_statfs,
   [SYS_fverify] sys_fverify,
+[SYS_spawn]   sys_spawn,
+[SYS_schedinfo] sys_schedinfo,
+[SYS_vmstat]  sys_vmstat,
+[SYS_eventfd] sys_eventfd,
+[SYS_timerfd] sys_timerfd,
+[SYS_devinfo] sys_devinfo,
+[SYS_dmesg]   sys_dmesg,
 };
 
 void

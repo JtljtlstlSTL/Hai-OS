@@ -175,5 +175,5 @@ Hai-OS
 
 FS 强化：目录索引（哈希/B+树）、数据块校验表、日志分段化/数据 journaling 开关、配额占位与 fsck-lite。
 调度/内存：CFS/MLFQ 调度、COW fork、slab 小对象分配器、guard pages。
-用户态/ABI：spawn/sysctl 风格查询（schedinfo/vmstat）、eventfd/timerfd 占位、top/ps/devinfo/dmesg 内置工具。
+用户态/ABI：新增 spawn 系统调用（fork+exec 结合）、schedinfo/vmstat/devinfo 查询（sysctl 风格），eventfd/timerfd/dmesg 暂为占位；内置工具 top/ps/devinfo/dmesg 用于观测。
 驱动框架增强：devinfo 注册表、virtio 队列统计、UART 环缓/流控占位

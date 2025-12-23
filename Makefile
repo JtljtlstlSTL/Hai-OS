@@ -147,6 +147,10 @@ UPROGS=\
 	$U/_sysinfo\
 	$U/_fsinfo\
 	$U/_fverify\
+	$U/_top\
+	$U/_ps\
+	$U/_devinfo\
+	$U/_dmesg\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
