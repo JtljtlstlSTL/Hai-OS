@@ -9,6 +9,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "hai_sysinfo.h"
 
 // the UART control registers are memory-mapped
 // at address UART0. this macro returns the
@@ -41,6 +42,11 @@
 static struct spinlock tx_lock;
 static int tx_busy;           // is the UART busy sending?
 static int tx_chan;           // &tx_chan is the "wait channel"
+
+// telemetry & placeholders for ring buffer / flow control.
+static uint64 uart_tx_bytes;
+static uint64 uart_rx_bytes;
+static int uart_flowctl;      // 0=none (placeholder)
 
 extern volatile int panicking; // from printf.c
 extern volatile int panicked; // from printf.c
@@ -92,6 +98,7 @@ uartwrite(char buf[], int n)
     WriteReg(THR, buf[i]);
     i += 1;
     tx_busy = 1;
+    uart_tx_bytes++;
   }
 
   release(&tx_lock);
@@ -157,5 +164,15 @@ uartintr(void)
     if(c == -1)
       break;
     consoleintr(c);
+    uart_rx_bytes++;
   }
+}
+
+// Export UART telemetry into hai_devinfo metrics (ring/flow placeholders).
+void
+uart_driver_stats(struct hai_driver *d)
+{
+  d->metric0 = uart_tx_bytes; // bytes sent
+  d->metric1 = uart_rx_bytes; // bytes received
+  d->metric2 = uart_flowctl;  // flow control mode (placeholder)
 }

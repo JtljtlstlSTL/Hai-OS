@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "buf.h"
 #include "virtio.h"
+#include "hai_sysinfo.h"
 
 // the address of virtio mmio register r.
 #define R(r) ((volatile uint32 *)(VIRTIO0 + (r)))
@@ -55,6 +56,14 @@ static struct disk {
   struct virtio_blk_req ops[NUM];
   
   struct spinlock vdisk_lock;
+
+  // telemetry
+  uint64 submits;
+  uint64 completes;
+  uint64 inflight;
+  uint64 max_inflight;
+  uint64 reads;
+  uint64 writes;
   
 } disk;
 
@@ -280,6 +289,16 @@ virtio_disk_rw(struct buf *b, int write)
 
   *R(VIRTIO_MMIO_QUEUE_NOTIFY) = 0; // value is queue number
 
+  // telemetry: update inflight/submits counters
+  disk.inflight++;
+  if(disk.inflight > disk.max_inflight)
+    disk.max_inflight = disk.inflight;
+  disk.submits++;
+  if(write)
+    disk.writes++;
+  else
+    disk.reads++;
+
   // Wait for virtio_disk_intr() to say request has finished.
   while(b->disk == 1) {
     sleep(b, &disk.vdisk_lock);
@@ -320,8 +339,23 @@ virtio_disk_intr()
     b->disk = 0;   // disk is done with buf
     wakeup(b);
 
+    if(disk.inflight > 0)
+      disk.inflight--;
+    disk.completes++;
+
     disk.used_idx += 1;
   }
 
+  release(&disk.vdisk_lock);
+}
+
+// Export virtio driver telemetry into hai_devinfo metric slots.
+void
+virtio_driver_stats(struct hai_driver *d)
+{
+  acquire(&disk.vdisk_lock);
+  d->metric0 = disk.submits;
+  d->metric1 = disk.completes;
+  d->metric2 = disk.max_inflight;
   release(&disk.vdisk_lock);
 }

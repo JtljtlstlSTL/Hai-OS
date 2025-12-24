@@ -12,6 +12,7 @@ struct hai_sysinfo;
 struct hai_statfs;
 struct driver;
 struct hai_devinfo;
+struct hai_driver;
 
 enum log_level {
 	LOG_INFO = 0,
@@ -25,6 +26,8 @@ void            register_builtin_drivers(void);
 void            init_drivers(void);
 void            hart_init_drivers(void);
 void            driver_snapshot(struct hai_devinfo *);
+void            virtio_driver_stats(struct hai_driver *);
+void            uart_driver_stats(struct hai_driver *);
 
 // bio.c
 void            binit(void);

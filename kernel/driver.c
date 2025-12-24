@@ -47,6 +47,10 @@ virtio_init_wrapper(void)
   return 0;
 }
 
+// driver-specific telemetry hooks (weak if driver未实现)。
+__attribute__((weak)) void virtio_driver_stats(struct hai_driver *d) { (void)d; }
+__attribute__((weak)) void uart_driver_stats(struct hai_driver *d) { (void)d; }
+
 static void
 register_driver(const char *name, enum driver_class cls, int (*init)(void), int (*hart_init)(void))
 {
@@ -105,5 +109,9 @@ driver_snapshot(struct hai_devinfo *info)
     safestrcpy(info->devs[i].name, drivers[i].name, sizeof(info->devs[i].name));
     info->devs[i].cls = drivers[i].cls;
     info->devs[i].inited = drivers[i].inited;
+    if(strncmp(drivers[i].name, "virtio-blk", 16) == 0)
+      virtio_driver_stats(&info->devs[i]);
+    else if(strncmp(drivers[i].name, "uart", 16) == 0)
+      uart_driver_stats(&info->devs[i]);
   }
 }

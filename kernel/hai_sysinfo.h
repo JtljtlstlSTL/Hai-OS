@@ -55,6 +55,9 @@ struct hai_driver {
   char name[16];
   int cls;
   int inited;
+  uint64 metric0;  // driver-specific metric #0
+  uint64 metric1;  // driver-specific metric #1
+  uint64 metric2;  // driver-specific metric #2
 };
 
 struct hai_devinfo {
